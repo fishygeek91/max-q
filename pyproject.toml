@@ -1,0 +1,21 @@
+[project]
+name = "maxq"
+version = "0.0.1"
+description = "Independent aerospace engineering benchmark for frontier LLMs"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic",
+    "openai",
+    "google-genai",
+    "httpx",
+    "pydantic>=2",
+    "pint",          # unit-aware answer checking
+    "numpy",
+]
+
+[project.optional-dependencies]
+verify = ["poliastro", "astropy"]   # independent ground-truth computation
+dev = ["pytest", "ruff"]
+
+[tool.ruff]
+line-length = 100

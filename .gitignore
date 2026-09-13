@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+*.egg-info/
+dist/
+# Private, unreleased question waves — NEVER commit before hash + run
+questions/private/
+# Raw API keys / run configs with secrets
+config.local.*
