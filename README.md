@@ -35,7 +35,7 @@ No lab funding. No aerospace employer. No axe to grind. Just the harness, the qu
 
 ## Status
 
-Pre-launch. Wave 1 is frozen (SHA-256 in `questions/HASHES.md`); questions unpublished until scoring. No model runs yet. Grok 4.7 not yet released; harness will be validated against Grok 4.6 as a stand-in.
+Pre-launch. Wave 1 is frozen (SHA-256 in `questions/HASHES.md`); questions unpublished until scoring. The run harness (`python -m maxq.runner`) is in place: identical-treatment adapters, dry-run smoke, resumable transcripts. No scored model runs yet. Grok 4.7 not yet released; the committed config pins Grok 4.6 as the baseline row.
 
 ## License
 

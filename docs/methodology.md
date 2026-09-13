@@ -23,8 +23,31 @@ A model's headline score is meaningless without the tier breakdown; we publish a
 - All disagreements and judgment calls logged publicly.
 
 ## Identical treatment
-Same prompt template, temperature, attempt count for every model. Best-of-n and
-pass@1 both reported. Full transcripts published.
+Every model gets the same closed-book treatment. The committed spec is
+`config/run.json` (template id `maxq-closed-book-v1`).
+
+- **Prompt:** one system prompt + the question stem + a shared `FINAL:` suffix.
+  Canonical text is stored on every transcript as `rendered_messages`. Wire
+  shape differs by vendor (Anthropic `system=`, Gemini `system_instruction`,
+  OpenAI Responses `instructions=`); the text does not.
+- **Sampling:** `temperature` 0.0, `attempts` 3 as **three independent API
+  calls** (never a vendor batch `n=`). Some reasoning models reject
+  `temperature`; those rows set `send_temperature: false`. Transcripts record
+  both `configured_temperature` and `request_temperature`.
+- **Tools:** none. No web search. OpenAI Responses uses `store=false` so
+  held-out stems are not kept in provider prompt history.
+- **Gemini safety:** the Google adapter sets `BLOCK_NONE` so propulsion/GNC
+  items are not pre-filtered. This is not jailbreak text in the shared prompt.
+  A model refusal (HTTP 200) is a completed attempt.
+- **Models (pinned ids):** `grok-4.6` (permanent 4.6 baseline),
+  `claude-fable-5-1`, `gpt-6-astra`, `gemini-3.1-pro` (preview flagship),
+  `gemini-3.8-flash` (small-model floor). A later Grok generation is a new
+  config row. Transcripts store `requested_model`, `response_model`, and UTC
+  `started_at` / `finished_at`.
+- **Resume:** skip a triple only when a valid transcript exists and `error` is
+  null. `cost.json` is rebuilt from transcripts on disk after every write.
+
+Scoring later reports both pass@1 and best-of-n. Full transcripts are published.
 
 ## Credibility protocol
 SHA-256 of the frozen question file is committed publicly BEFORE any model runs
