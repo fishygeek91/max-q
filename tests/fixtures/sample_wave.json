@@ -1,0 +1,41 @@
+[
+  {
+    "id": "W0-TEST-001",
+    "domain": "propulsion",
+    "difficulty": "undergrad",
+    "prompt": "Dummy fixture. Report a single number in m/s.",
+    "scoring": "numeric_tolerance",
+    "answer": 1.234567,
+    "unit": "m/s",
+    "rel_tol": 0.01,
+    "rubric": null,
+    "provenance": "Synthetic fixture for unit tests; not a Wave 1 item."
+  },
+  {
+    "id": "W0-TEST-002",
+    "domain": "gnc",
+    "difficulty": "expert",
+    "prompt": "Dummy fixture. Show the derivation and explicitly address each rubric bullet.",
+    "scoring": "rubric",
+    "answer": null,
+    "unit": null,
+    "rel_tol": null,
+    "rubric": [
+      "States the governing equation",
+      "Names the assumption"
+    ],
+    "provenance": "Synthetic fixture for unit tests; not a Wave 1 item."
+  },
+  {
+    "id": "W0-TEST-003",
+    "domain": "telemetry",
+    "difficulty": "practitioner",
+    "prompt": "Dummy fixture. Reply with exactly one of: alpha, bravo.",
+    "scoring": "exact",
+    "answer": "alpha",
+    "unit": null,
+    "rel_tol": null,
+    "rubric": null,
+    "provenance": "Synthetic fixture for unit tests; not a Wave 1 item."
+  }
+]

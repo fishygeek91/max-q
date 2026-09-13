@@ -14,8 +14,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-verify = ["poliastro", "astropy"]   # independent ground-truth computation
+verify = ["poliastro", "astropy", "sgp4"]   # independent ground-truth computation
 dev = ["pytest", "ruff"]
+
+[tool.setuptools.packages.find]
+include = ["maxq*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
