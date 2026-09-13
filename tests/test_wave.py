@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
-import sys
 from pathlib import Path
 
 import pytest
@@ -147,10 +147,29 @@ def test_sha256_known_bytes(tmp_path: Path) -> None:
     assert sha256_file(path) == hashlib.sha256(payload).hexdigest()
 
 
-def test_wave_module_does_not_import_stubs() -> None:
-    """Importing maxq.wave must not import the unimplemented scoring/runner stubs."""
-    for name in ("maxq.scoring", "maxq.runner"):
-        assert name not in sys.modules
+def _imported_names(path: Path) -> set[str]:
+    """Collect import module names from ``path`` so this test is order-independent."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                names.add(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            for alias in node.names:
+                names.add(alias.name)
+                if module:
+                    names.add(module)
+                    names.add(f"{module}.{alias.name}")
+    return names
+
+
+def test_wave_module_does_not_import_runner_or_scoring() -> None:
+    """wave.py and __init__.py must not import runner or scoring (AST, any test order)."""
+    names = _imported_names(ROOT / "maxq" / "wave.py") | _imported_names(ROOT / "maxq" / "__init__.py")
+    banned = {"maxq.runner", "maxq.scoring", "runner", "scoring"}
+    assert names.isdisjoint(banned)
 
 
 @pytest.mark.skipif(not PRIVATE_WAVE.is_file(), reason="held-out wave is local-only")

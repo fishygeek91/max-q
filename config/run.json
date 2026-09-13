@@ -1,0 +1,79 @@
+{
+  "temperature": 0.0,
+  "attempts": 3,
+  "max_output_tokens": 16384,
+  "timeout_s": 300,
+  "retry_max": 5,
+  "retry_base_s": 1.0,
+  "sleep_between_calls_s": 0,
+  "prompt_template_id": "maxq-closed-book-v1",
+  "system_prompt": "You are a working aerospace engineer taking a closed-book exam. Solve using only the information in the question. Do not use tools, web search, or external data.",
+  "user_suffix": "Work from first principles. Show intermediate steps.\nPut the final answer alone on the last line in this form:\nFINAL: <answer>\nFor numeric answers include the unit after the number.\nFor list or series answers use a JSON array.",
+  "models": [
+    {
+      "id": "grok-4.6",
+      "provider": "xai",
+      "enabled": true,
+      "role": "baseline",
+      "send_temperature": false,
+      "pricing_usd_per_mtok": {
+        "input": 2.0,
+        "output": 6.0,
+        "cached_input": 0.5
+      },
+      "notes": "Permanent 4.6 baseline row. A later Grok generation is a new config row, not a code change. Pricing from xAI public docs (USD / 1M tokens)."
+    },
+    {
+      "id": "claude-fable-5-1",
+      "provider": "anthropic",
+      "enabled": true,
+      "role": "flagship",
+      "send_temperature": false,
+      "pricing_usd_per_mtok": {
+        "input": 10.0,
+        "output": 50.0,
+        "cached_input": null
+      },
+      "notes": "Anthropic dateless id is a pinned snapshot. Confirm list price before a paid wave."
+    },
+    {
+      "id": "gpt-6-astra",
+      "provider": "openai",
+      "enabled": true,
+      "role": "flagship",
+      "send_temperature": false,
+      "pricing_usd_per_mtok": {
+        "input": 15.0,
+        "output": 75.0,
+        "cached_input": null
+      },
+      "notes": "OpenAI flagship as of config commit. Pricing is an estimate — confirm on the dashboard before a paid wave. Prefer a dated snapshot id in this file if OpenAI publishes one."
+    },
+    {
+      "id": "gemini-3.1-pro",
+      "provider": "google",
+      "enabled": true,
+      "role": "flagship",
+      "send_temperature": true,
+      "pricing_usd_per_mtok": {
+        "input": 1.25,
+        "output": 10.0,
+        "cached_input": null
+      },
+      "notes": "Preview flagship. Do not substitute Flash. Verify the live API string with --verify-models (docs sometimes use a -preview suffix). Pricing is an estimate."
+    },
+    {
+      "id": "gemini-3.8-flash",
+      "provider": "google",
+      "enabled": true,
+      "role": "small_floor",
+      "send_temperature": true,
+      "pricing_usd_per_mtok": {
+        "input": 0.15,
+        "output": 0.6,
+        "cached_input": null
+      },
+      "notes": "Small-model undergrad floor. Same Google adapter as Pro. Pricing is an estimate."
+    }
+  ]
+}
