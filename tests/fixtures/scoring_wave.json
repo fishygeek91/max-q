@@ -1,0 +1,53 @@
+[
+  {
+    "id": "W0-SCR-001",
+    "domain": "propulsion",
+    "difficulty": "undergrad",
+    "prompt": "Dummy scoring fixture. Report a single number in m/s.",
+    "scoring": "numeric_tolerance",
+    "answer": 1.0,
+    "unit": "m/s",
+    "rel_tol": 0.01,
+    "rubric": null,
+    "provenance": "Synthetic fixture for scoring tests; not a Wave 1 item."
+  },
+  {
+    "id": "W0-SCR-002",
+    "domain": "gnc",
+    "difficulty": "expert",
+    "prompt": "Dummy scoring fixture. Address each rubric bullet.",
+    "scoring": "rubric",
+    "answer": null,
+    "unit": null,
+    "rel_tol": null,
+    "rubric": [
+      "States the governing equation",
+      "Names the assumption"
+    ],
+    "provenance": "Synthetic fixture for scoring tests; not a Wave 1 item."
+  },
+  {
+    "id": "W0-SCR-003",
+    "domain": "telemetry",
+    "difficulty": "practitioner",
+    "prompt": "Dummy scoring fixture. Reply with exactly one of: alpha, bravo.",
+    "scoring": "exact",
+    "answer": "alpha",
+    "unit": null,
+    "rel_tol": null,
+    "rubric": null,
+    "provenance": "Synthetic fixture for scoring tests; not a Wave 1 item."
+  },
+  {
+    "id": "W0-SCR-004",
+    "domain": "telemetry",
+    "difficulty": "practitioner",
+    "prompt": "Dummy scoring fixture. Report a JSON array of three speeds in m/s.",
+    "scoring": "ground_truth_series",
+    "answer": "[1.0, 2.0, 3.0]",
+    "unit": "m/s",
+    "rel_tol": 0.01,
+    "rubric": null,
+    "provenance": "Synthetic fixture for scoring tests; not a Wave 1 item."
+  }
+]

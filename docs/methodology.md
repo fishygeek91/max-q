@@ -18,9 +18,35 @@ practitioner (working-engineer tasks), expert (edge cases, real trade studies).
 A model's headline score is meaningless without the tier breakdown; we publish all.
 
 ## Scoring
-- Numeric: unit-aware (pint), relative tolerance declared per question at freeze time.
-- Derivations: published rubric, LLM-assisted first pass, human-confirmed.
-- All disagreements and judgment calls logged publicly.
+
+Mechanical wherever possible. The CLI is `python -m maxq.scoring`.
+
+- **Extract:** the payload of the last `FINAL:` line in `Transcript.text`
+  (case-insensitive). Missing or empty FINAL is unparseable.
+- **Numeric (`numeric_tolerance`):** pint-parse the payload (bare numbers inherit
+  the question unit), convert into that unit, and pass iff
+  `abs(candidate - truth) <= rel_tol * abs(truth)` (boundary inclusive). A zero
+  truth matches only a converted zero. Unparseable or incompatible units score 0
+  with a scorer note.
+- **Series (`ground_truth_series`):** the FINAL payload must be a JSON array of
+  the same length as the frozen precomputed truth in `Question.answer`. Each
+  element is converted into the question unit and checked with the same
+  `rel_tol`. Truth is *not* recomputed at score time (poliastro/astropy stay in
+  the optional `verify` extra used when authoring items).
+- **Exact:** stripped, case-sensitive string equality on the FINAL payload.
+- **Truncation:** if `truncated` is true and the FINAL line is missing or
+  unparseable, the attempt is `truncated` with `score=null` — not incorrect. A
+  truncated attempt that still has a parseable FINAL is scored normally and
+  noted.
+- **Rubric:** LLM-assisted first pass (`--judge-model` / `--judge-stub`) writes
+  `results/wave-N/rubric-queue.json`. Official scores stay `pending_rubric` until
+  `--accept-llm` (confirm the first pass as-is) or `--apply-overrides PATH`.
+  Every accept and every criterion change is appended to
+  `results/wave-N/overrides.jsonl`. Pass@1 / best-of-n require every bullet
+  confirmed true (`score == 1.0`); pending rows cannot pass.
+- **Reporting:** `results/wave-N/scored.json` plus a model×tier table
+  (undergrad / practitioner / expert) with pass@1, best-of-n, truncated,
+  unparseable, and pending-rubric counts. Never a single headline number.
 
 ## Identical treatment
 Every model gets the same closed-book treatment. The committed spec is
@@ -47,7 +73,8 @@ Every model gets the same closed-book treatment. The committed spec is
 - **Resume:** skip a triple only when a valid transcript exists and `error` is
   null. `cost.json` is rebuilt from transcripts on disk after every write.
 
-Scoring later reports both pass@1 and best-of-n. Full transcripts are published.
+Scoring reports both pass@1 and best-of-n per model and per tier. Full
+transcripts are published.
 
 ## Credibility protocol
 SHA-256 of the frozen question file is committed publicly BEFORE any model runs

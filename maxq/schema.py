@@ -1,8 +1,8 @@
 """Question, run-config, transcript, and scoring-result schemas.
 
-See ``docs/methodology.md``. ``Question`` / ``ModelAnswer`` are unchanged from
-Wave 1. Runner artifacts (``Transcript``, ``RunConfig``) are defined here so
-scoring (issue #3) can read the same on-disk contract.
+See ``docs/methodology.md``. Runner artifacts (``Transcript``, ``RunConfig``)
+are defined here so scoring can read the same on-disk contract. ``ModelAnswer``
+and the wave score report are the scored-JSON contract (issue #3).
 """
 
 from __future__ import annotations
@@ -10,11 +10,22 @@ from __future__ import annotations
 from collections import Counter
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Domain = Literal["propulsion", "orbital", "structures", "gnc", "telemetry"]
 Difficulty = Literal["undergrad", "practitioner", "expert"]
 ScoringMode = Literal["numeric_tolerance", "rubric", "exact", "ground_truth_series"]
+AttemptStatus = Literal[
+    "correct",
+    "incorrect",
+    "unparseable",
+    "truncated",
+    "error",
+    "missing",
+    "pending_rubric",
+]
+RubricQueueStatus = Literal["pending", "confirmed"]
+OverrideAction = Literal["accept", "override"]
 ProviderName = Literal["xai", "anthropic", "openai", "google"]
 ModelRole = Literal["flagship", "baseline", "small_floor"]
 MessageRole = Literal["system", "user"]
@@ -56,6 +67,79 @@ COST_LEDGER_KEY_ORDER: tuple[str, ...] = (
     "totals",
 )
 
+MODEL_ANSWER_KEY_ORDER: tuple[str, ...] = (
+    "question_id",
+    "model",
+    "attempt",
+    "raw_response",
+    "parsed_answer",
+    "score",
+    "scorer_notes",
+    "status",
+    "scoring",
+    "truncated",
+    "pending_rubric",
+    "criterion_scores",
+)
+"""JSON object key order locked for per-attempt rows inside scored.json."""
+
+TIER_METRICS_KEY_ORDER: tuple[str, ...] = (
+    "n_questions",
+    "pass_at_1",
+    "best_of_n",
+    "truncated_attempts",
+    "unparseable",
+    "pending_rubric",
+    "errors",
+    "missing",
+)
+
+MODEL_SUMMARY_KEY_ORDER: tuple[str, ...] = (
+    "model",
+    "n_questions",
+    "n_attempts",
+    "pass_at_1",
+    "best_of_n",
+    "mean_score_at_1",
+    "by_tier",
+    "truncated_attempts",
+    "unparseable",
+    "pending_rubric",
+    "errors",
+    "missing",
+)
+
+WAVE_SCORE_KEY_ORDER: tuple[str, ...] = (
+    "wave",
+    "n_attempts",
+    "models",
+    "attempts",
+)
+
+RUBRIC_QUEUE_ITEM_KEY_ORDER: tuple[str, ...] = (
+    "question_id",
+    "model",
+    "attempt",
+    "rubric",
+    "llm_scores",
+    "llm_notes",
+    "status",
+    "confirmed_scores",
+)
+
+OVERRIDE_LOG_KEY_ORDER: tuple[str, ...] = (
+    "action",
+    "question_id",
+    "model",
+    "attempt",
+    "criterion_index",
+    "from",
+    "to",
+    "reviewer",
+    "reason",
+    "at",
+)
+
 
 class Question(BaseModel):
     id: str  # e.g. "W1-PROP-007"
@@ -71,15 +155,24 @@ class Question(BaseModel):
 
 
 class ModelAnswer(BaseModel):
-    """Scoring-side record. Issue #3 reads ``Transcript.text``, not this, at run time."""
+    """Scoring-side record for one (question, model, attempt) triple.
+
+    Built from ``Transcript.text`` plus the question key; never written back
+    into the transcript file.
+    """
 
     question_id: str
     model: str
-    attempt: int
+    attempt: int = Field(ge=1)
     raw_response: str
     parsed_answer: str | float | None = None
-    score: float | None = None  # 0.0–1.0
+    score: float | None = Field(default=None, ge=0.0, le=1.0)
     scorer_notes: str | None = None
+    status: AttemptStatus
+    scoring: ScoringMode
+    truncated: bool = False
+    pending_rubric: bool = False
+    criterion_scores: list[bool] | None = None
 
 
 class TokenUsage(BaseModel):
@@ -243,3 +336,92 @@ class CostLedger(BaseModel):
     enabled_model_ids: list[str]
     per_model: list[ModelCostRow]
     totals: CostTotals
+
+
+class RubricQueueItem(BaseModel):
+    """One rubric attempt in ``rubric-queue.json`` awaiting or after human confirm."""
+
+    question_id: str
+    model: str
+    attempt: int = Field(ge=1)
+    rubric: list[str]
+    llm_scores: list[bool] | None = None
+    llm_notes: str | None = None
+    status: RubricQueueStatus = "pending"
+    confirmed_scores: list[bool] | None = None
+
+
+class RubricOverrideSpec(BaseModel):
+    """Human edit applied via ``--apply-overrides`` (JSON array on disk)."""
+
+    question_id: str
+    model: str
+    attempt: int = Field(ge=1)
+    criterion_index: int = Field(ge=0)
+    to: bool
+    reviewer: str
+    reason: str
+
+    @model_validator(mode="after")
+    def _nonempty_review(self) -> RubricOverrideSpec:
+        if not self.reviewer.strip():
+            raise ValueError("reviewer must be non-empty")
+        if not self.reason.strip():
+            raise ValueError("reason must be non-empty")
+        return self
+
+
+class OverrideLogLine(BaseModel):
+    """One public audit record appended to ``overrides.jsonl``."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    action: OverrideAction
+    question_id: str
+    model: str
+    attempt: int = Field(ge=1)
+    criterion_index: int | None = None
+    from_value: bool | None = Field(default=None, alias="from")
+    to: bool | None = None
+    reviewer: str
+    reason: str
+    at: str
+
+
+class TierMetrics(BaseModel):
+    """pass@1 / best-of-n and unscored counts for one difficulty tier."""
+
+    n_questions: int = Field(ge=0)
+    pass_at_1: float = Field(ge=0.0, le=1.0)
+    best_of_n: float = Field(ge=0.0, le=1.0)
+    truncated_attempts: int = Field(default=0, ge=0)
+    unparseable: int = Field(default=0, ge=0)
+    pending_rubric: int = Field(default=0, ge=0)
+    errors: int = Field(default=0, ge=0)
+    missing: int = Field(default=0, ge=0)
+
+
+class ModelScoreSummary(BaseModel):
+    """Per-model rollup. Headline numbers are meaningless without ``by_tier``."""
+
+    model: str
+    n_questions: int = Field(ge=0)
+    n_attempts: int = Field(ge=1)
+    pass_at_1: float = Field(ge=0.0, le=1.0)
+    best_of_n: float = Field(ge=0.0, le=1.0)
+    mean_score_at_1: float | None = Field(default=None, ge=0.0, le=1.0)
+    by_tier: dict[str, TierMetrics]
+    truncated_attempts: int = Field(default=0, ge=0)
+    unparseable: int = Field(default=0, ge=0)
+    pending_rubric: int = Field(default=0, ge=0)
+    errors: int = Field(default=0, ge=0)
+    missing: int = Field(default=0, ge=0)
+
+
+class WaveScoreReport(BaseModel):
+    """On-disk ``scored.json``: per-attempt rows plus per-model, per-tier metrics."""
+
+    wave: str
+    n_attempts: int = Field(ge=1)
+    models: list[ModelScoreSummary]
+    attempts: list[ModelAnswer]
