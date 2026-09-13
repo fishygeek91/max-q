@@ -35,7 +35,7 @@ No lab funding. No aerospace employer. No axe to grind. Just the harness, the qu
 
 ## Status
 
-Pre-launch. Wave 1 in development. Grok 4.7 not yet released; harness is validated against Grok 4.6 as a stand-in.
+Pre-launch. Wave 1 is frozen (SHA-256 in `questions/HASHES.md`); questions unpublished until scoring. No model runs yet. Grok 4.7 not yet released; harness will be validated against Grok 4.6 as a stand-in.
 
 ## License
 
