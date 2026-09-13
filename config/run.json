@@ -60,7 +60,8 @@
         "output": 10.0,
         "cached_input": null
       },
-      "notes": "Preview flagship. Do not substitute Flash. Verify the live API string with --verify-models (docs sometimes use a -preview suffix). Pricing is an estimate."
+      "notes": "Preview flagship. Do not substitute Flash. Verify the live API string with --verify-models (docs sometimes use a -preview suffix). Pricing is an estimate. max_output_tokens=32768 override: Gemini counts thinking tokens against the visible-output cap, so the run-level 16384 budget can truncate expert answers before the FINAL line. Documented per-provider deviation (see docs/methodology.md).",
+      "max_output_tokens": 32768
     },
     {
       "id": "gemini-3.8-flash",
@@ -73,7 +74,8 @@
         "output": 0.6,
         "cached_input": null
       },
-      "notes": "Small-model undergrad floor. Same Google adapter as Pro. Pricing is an estimate."
+      "notes": "Small-model undergrad floor. Same Google adapter as Pro. Pricing is an estimate. max_output_tokens=32768 override: Gemini counts thinking tokens against the visible-output cap, so the run-level 16384 budget can truncate expert answers before the FINAL line. Documented per-provider deviation (see docs/methodology.md).",
+      "max_output_tokens": 32768
     }
   ]
 }

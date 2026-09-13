@@ -164,7 +164,9 @@ def test_dry_run_cost_matches_transcripts_and_resume_does_not_duplicate(
     """Cost ledger equals summed transcript costs; a second run skips and does not double."""
     assert _run_dry(tmp_path) == 0
     wave_dir = tmp_path / "wave-smoke"
-    ledger = CostLedger.model_validate(json.loads((wave_dir / "cost.json").read_text(encoding="utf-8")))
+    ledger = CostLedger.model_validate(
+        json.loads((wave_dir / "cost.json").read_text(encoding="utf-8"))
+    )
     transcripts = [
         Transcript.model_validate(json.loads(path.read_text(encoding="utf-8")))
         for path in wave_dir.glob("*/*-a*.json")
@@ -178,7 +180,9 @@ def test_dry_run_cost_matches_transcripts_and_resume_does_not_duplicate(
         assert item.cost_usd == estimate_cost_usd(item.usage, spec.pricing_usd_per_mtok)
     first_calls = ledger.totals.calls
     assert _run_dry(tmp_path) == 0
-    ledger2 = CostLedger.model_validate(json.loads((wave_dir / "cost.json").read_text(encoding="utf-8")))
+    ledger2 = CostLedger.model_validate(
+        json.loads((wave_dir / "cost.json").read_text(encoding="utf-8"))
+    )
     assert ledger2.totals.cost_usd == summed
     assert ledger2.totals.calls == first_calls
     assert ledger2.totals.skipped == first_calls
@@ -239,7 +243,9 @@ def test_no_generation_branch_in_harness_code() -> None:
 
 def test_sanitize_redacts_credentials_not_usage() -> None:
     """``api_key`` is redacted; ``input_tokens`` is left intact."""
-    cleaned = sanitize({"api_key": "sk-secret-value", "input_tokens": 9, "nested": {"password": "x"}})
+    cleaned = sanitize(
+        {"api_key": "sk-secret-value", "input_tokens": 9, "nested": {"password": "x"}}
+    )
     assert isinstance(cleaned, dict)
     assert cleaned["api_key"] == "[redacted]"
     assert cleaned["input_tokens"] == 9
@@ -262,7 +268,13 @@ def test_render_prompt_does_not_inject_answer_keys() -> None:
 
 def test_live_run_fail_fast_without_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A non-dry run exits 1 before any call when API keys are missing."""
-    for name in ("XAI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY"):
+    for name in (
+        "XAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "GOOGLE_API_KEY",
+        "GEMINI_API_KEY",
+    ):
         monkeypatch.delenv(name, raising=False)
     code = main(
         [
@@ -581,3 +593,149 @@ def test_empty_questions_rejected(tmp_path: Path) -> None:
         ]
     )
     assert code == 1
+
+
+def test_truncation_detectors() -> None:
+    """Each provider's stop-at-cap shape maps to truncated=True."""
+    from maxq.providers import (
+        _anthropic_truncated,
+        _chat_truncated,
+        _google_truncated,
+        _responses_truncated,
+    )
+
+    chat_hit = SimpleNamespace(choices=[SimpleNamespace(finish_reason="length")])
+    chat_ok = SimpleNamespace(choices=[SimpleNamespace(finish_reason="stop")])
+    assert _chat_truncated(chat_hit) is True
+    assert _chat_truncated(chat_ok) is False
+
+    resp_hit = SimpleNamespace(
+        status="incomplete",
+        incomplete_details=SimpleNamespace(reason="max_output_tokens"),
+    )
+    resp_ok = SimpleNamespace(status="completed", incomplete_details=None)
+    assert _responses_truncated(resp_hit) is True
+    assert _responses_truncated(resp_ok) is False
+
+    assert _anthropic_truncated(SimpleNamespace(stop_reason="max_tokens")) is True
+    assert _anthropic_truncated(SimpleNamespace(stop_reason="end_turn")) is False
+
+    google_hit = SimpleNamespace(
+        candidates=[SimpleNamespace(finish_reason=genai_types.FinishReason.MAX_TOKENS)]
+    )
+    google_ok = SimpleNamespace(
+        candidates=[SimpleNamespace(finish_reason=genai_types.FinishReason.STOP)]
+    )
+    assert _google_truncated(google_hit) is True
+    assert _google_truncated(google_ok) is False
+    assert _google_truncated(SimpleNamespace(candidates=[])) is False
+
+
+def test_transcript_records_truncated_flag(tmp_path: Path) -> None:
+    """A truncated adapter result lands as truncated=true in the transcript JSON."""
+    from maxq.runner import _success_transcript, dump_transcript
+    from maxq.schema import RenderedMessage
+
+    config = load_run_config(CONFIG)
+    spec = next(item for item in config.models if item.provider == "google")
+    questions = load_questions(FIXTURE)
+    result = AdapterResult(
+        text="",
+        usage=TokenUsage(input_tokens=10, output_tokens=spec.max_output_tokens or 1),
+        raw_request={},
+        raw_response={},
+        request_temperature=0.0,
+        response_model=spec.id,
+        sdk_version="test",
+        truncated=True,
+    )
+    transcript = _success_transcript(
+        question=questions[0],
+        spec=spec,
+        attempt=1,
+        wave="wave-smoke",
+        config=config,
+        config_sha="0" * 64,
+        messages=[
+            RenderedMessage(role="system", content="s"),
+            RenderedMessage(role="user", content="u"),
+        ],
+        max_output_tokens=32768,
+        dry_run=True,
+        started_at="2026-09-13T00:00:00Z",
+        result=result,
+    )
+    path = tmp_path / "t.json"
+    dump_transcript(transcript, path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["truncated"] is True
+    assert payload["max_output_tokens"] == 32768
+    keys = list(payload)
+    assert keys.index("truncated") == keys.index("error") - 1
+
+
+def test_google_models_have_token_budget_override() -> None:
+    """Config gives Google rows headroom for thinking tokens; others use run level."""
+    from maxq.runner import effective_max_output_tokens
+
+    config = load_run_config(CONFIG)
+    for spec in config.models:
+        effective = effective_max_output_tokens(spec, config)
+        if spec.provider == "google":
+            assert spec.max_output_tokens is not None
+            assert effective == spec.max_output_tokens
+            assert effective > config.max_output_tokens
+        else:
+            assert effective == config.max_output_tokens
+
+
+def test_verify_ping_budget_not_one_token() -> None:
+    """Verify pings use a reasoning-safe budget, not max_output_tokens=1."""
+    from maxq.runner import VERIFY_MAX_TOKENS
+
+    assert VERIFY_MAX_TOKENS >= 256
+
+
+def test_wave_results_are_gitignored_and_publishable_only_by_script(tmp_path: Path) -> None:
+    """results/wave-*/ transcripts never enter git without the publish script."""
+    ignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert "results/wave-*/" in ignore
+    check = subprocess.run(
+        ["git", "check-ignore", "results/wave-1/some-model/W1-PROP-001-a1.json"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert check.returncode == 0, "wave transcript path is not gitignored"
+    tracked = subprocess.run(
+        ["git", "ls-files", "results"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert tracked.stdout.strip() == "results/README.md"
+
+
+def test_publish_wave_refuses_incomplete_wave(tmp_path: Path) -> None:
+    """The publish guard exits non-zero while any enabled model lacks transcripts."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "publish_wave", ROOT / "scripts" / "publish_wave.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    code = module.main(
+        [
+            "--wave",
+            "77",
+            "--questions",
+            str(FIXTURE),
+            "--results-root",
+            str(tmp_path),
+        ]
+    )
+    assert code == 2

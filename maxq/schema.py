@@ -41,6 +41,7 @@ TRANSCRIPT_KEY_ORDER: tuple[str, ...] = (
     "started_at",
     "finished_at",
     "dry_run",
+    "truncated",
     "error",
 )
 """JSON object key order locked for published transcripts."""
@@ -106,6 +107,11 @@ class ModelSpec(BaseModel):
     role: ModelRole
     send_temperature: bool
     pricing_usd_per_mtok: Pricing
+    max_output_tokens: int | None = Field(default=None, ge=1)
+    """Per-model output-token budget override (reasoning models whose thinking
+    tokens share the visible-output cap need more headroom). Null uses the
+    run-level ``RunConfig.max_output_tokens``. Any override is a documented
+    per-provider deviation from identical treatment — explain it in ``notes``."""
     notes: str = ""
 
     @model_validator(mode="after")
@@ -182,6 +188,10 @@ class Transcript(BaseModel):
     started_at: str
     finished_at: str
     dry_run: bool
+    truncated: bool = False
+    """True when the provider stopped at the output-token cap (finish/stop
+    reason), so an absent FINAL line is a budget artifact, not a wrong answer.
+    Scoring must report truncated attempts separately from incorrect ones."""
     error: str | None = None
 
 
@@ -195,6 +205,7 @@ class AdapterResult(BaseModel):
     request_temperature: float | None
     response_model: str | None
     sdk_version: str
+    truncated: bool = False
 
 
 class ModelCostRow(BaseModel):

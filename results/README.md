@@ -30,3 +30,7 @@ use a `.tmp` file, fsync, then replace.
 (never a running total). Rates come from `config/run.json`
 (`pricing_usd_per_mtok`). Dry-run still writes fake usage so the path is
 tested.
+
+**Publication gate:** `results/wave-*/` is gitignored (transcripts embed
+held-out stems). Publish only via `scripts/publish_wave.py` after every
+enabled model is scored — see docs/methodology.md.

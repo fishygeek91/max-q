@@ -54,3 +54,25 @@ SHA-256 of the frozen question file is committed publicly BEFORE any model runs
 (questions/HASHES.md + public post). Questions published after scoring. Code MIT,
 questions CC BY 4.0. No funding from, or affiliation with, any AI lab or
 aerospace company.
+
+## Output-token budgets and truncation
+
+Reasoning models spend tokens on internal thinking. On Gemini, thinking tokens
+count against the request's visible-output cap, so Google model rows carry a
+documented `max_output_tokens` override in `config/run.json`; all other
+providers use the run-level budget. Every adapter records whether the provider
+stopped at the token cap (`truncated: true` in the transcript). A truncated
+attempt is reported separately from an incorrect one — an absent FINAL line at
+the cap is a budget artifact, not evidence about the model's engineering
+ability. `--verify-models` pings with a fixed 1024-token budget and passes on
+any successful response, even with empty visible text.
+
+## Publication gate
+
+Wave transcripts embed the question stems, so `results/wave-*/` is gitignored
+and a wave is published only through `scripts/publish_wave.py`, which refuses
+until every enabled model in the run config has complete, error-free
+transcripts and the question file still matches its frozen hash. In
+particular: after the Grok 4.6 baseline run, the wave stays private until the
+next Grok generation has been run and scored — publishing in between would let
+the newer model see the questions and void the delta.

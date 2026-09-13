@@ -9,5 +9,8 @@ questions/private/
 # Raw API keys / run configs with secrets
 config.local.*
 # Smoke-run artifacts (tests use tmp_path; accidental local CLI smoke stays out of git)
-results/wave-smoke/
+# Wave transcripts embed held-out question stems. A wave is published ONLY
+# via scripts/publish_wave.py (git add -f) after every enabled model —
+# including a later Grok generation — has been run and scored.
+results/wave-*/
 results/**/*.tmp

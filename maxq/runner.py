@@ -46,6 +46,10 @@ WAVE_DIR_RE = re.compile(r"^wave-[A-Za-z0-9._-]+$")
 SLUG_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 VERIFY_SYSTEM = "Reply with exactly one character."
 VERIFY_USER = "Reply with the single character: y"
+VERIFY_MAX_TOKENS = 1024
+"""Ping budget. Reasoning models spend tokens on thinking before any visible
+text, so a 1-token cap false-fails exactly the models under test. Verify
+passes on any successful response (even with empty visible text)."""
 
 
 def default_config_path() -> Path:
@@ -104,6 +108,13 @@ def transcript_path(
 ) -> Path:
     """``{results_root}/wave-N/<model>/{question_id}-a{attempt}.json``."""
     return results_root / wave / model_slug(model_id) / f"{question_id}-a{attempt}.json"
+
+
+def effective_max_output_tokens(spec: ModelSpec, config: RunConfig) -> int:
+    """Per-model output-token budget: spec override, else the run-level value."""
+    if spec.max_output_tokens is not None:
+        return spec.max_output_tokens
+    return config.max_output_tokens
 
 
 def render_prompt(question: Question, config: RunConfig) -> list[RenderedMessage]:
@@ -274,6 +285,7 @@ def _error_transcript(
     config: RunConfig,
     config_sha: str,
     messages: list[RenderedMessage],
+    max_output_tokens: int,
     dry_run: bool,
     started_at: str,
     error: str,
@@ -290,7 +302,7 @@ def _error_transcript(
         rendered_messages=messages,
         configured_temperature=config.temperature,
         request_temperature=config.temperature if spec.send_temperature else None,
-        max_output_tokens=config.max_output_tokens,
+        max_output_tokens=max_output_tokens,
         run_config_sha256=config_sha,
         text="",
         raw_request={},
@@ -301,6 +313,7 @@ def _error_transcript(
         started_at=started_at,
         finished_at=utc_now(),
         dry_run=dry_run,
+        truncated=False,
         error=error,
     )
 
@@ -314,6 +327,7 @@ def _success_transcript(
     config: RunConfig,
     config_sha: str,
     messages: list[RenderedMessage],
+    max_output_tokens: int,
     dry_run: bool,
     started_at: str,
     result: AdapterResult,
@@ -330,7 +344,7 @@ def _success_transcript(
         rendered_messages=messages,
         configured_temperature=config.temperature,
         request_temperature=result.request_temperature,
-        max_output_tokens=config.max_output_tokens,
+        max_output_tokens=max_output_tokens,
         run_config_sha256=config_sha,
         text=result.text,
         raw_request=result.raw_request,
@@ -341,6 +355,7 @@ def _success_transcript(
         started_at=started_at,
         finished_at=utc_now(),
         dry_run=dry_run,
+        truncated=result.truncated,
         error=None,
     )
 
@@ -363,6 +378,7 @@ def run_wave(
 
     for spec in models:
         adapter = adapter_for(spec.provider, dry_run=dry_run)
+        max_tokens = effective_max_output_tokens(spec, config)
         for question in questions:
             messages = render_prompt(question, config)
             system_msg = next((item for item in messages if item.role == "system"), None)
@@ -389,7 +405,7 @@ def run_wave(
                         user=user,
                         temperature=config.temperature,
                         send_temperature=spec.send_temperature,
-                        max_output_tokens=config.max_output_tokens,
+                        max_output_tokens=max_tokens,
                         timeout_s=config.timeout_s,
                     )
                     transcript = _success_transcript(
@@ -400,11 +416,12 @@ def run_wave(
                         config=config,
                         config_sha=config_sha,
                         messages=messages,
+                        max_output_tokens=max_tokens,
                         dry_run=dry_run,
                         started_at=started_at,
                         result=result,
                     )
-                    status = "wrote"
+                    status = "wrote truncated" if result.truncated else "wrote"
                 except Exception as exc:  # noqa: BLE001 - persist any adapter/SDK failure
                     transcript = _error_transcript(
                         question=question,
@@ -414,6 +431,7 @@ def run_wave(
                         config=config,
                         config_sha=config_sha,
                         messages=messages,
+                        max_output_tokens=max_tokens,
                         dry_run=dry_run,
                         started_at=started_at,
                         error=f"{type(exc).__name__}: {exc}",
@@ -431,7 +449,7 @@ def run_wave(
                 )
                 persist_cost_ledger(wave_dir, ledger)
                 print(f"{spec.id} {question.id} {attempt} {status}", file=sys.stderr)
-                if not dry_run and config.sleep_between_calls_s > 0 and status == "wrote":
+                if not dry_run and config.sleep_between_calls_s > 0 and status.startswith("wrote"):
                     time.sleep(config.sleep_between_calls_s)
 
     ledger = rebuild_cost_ledger(
@@ -452,7 +470,12 @@ def verify_models(
     models: list[ModelSpec],
     dry_run: bool,
 ) -> int:
-    """One-token ping per model. Prints requested vs echoed id. Return exit code."""
+    """Ping each model with a VERIFY_MAX_TOKENS budget; print requested vs echoed id.
+
+    A successful API response passes even when visible text is empty (reasoning
+    models may spend the whole ping budget thinking): verify checks that the id
+    exists and answers, not what it says. Only an exception counts as failure.
+    """
     failures = 0
     for spec in models:
         adapter = adapter_for(spec.provider, dry_run=dry_run)
@@ -467,7 +490,7 @@ def verify_models(
                 user=VERIFY_USER,
                 temperature=config.temperature,
                 send_temperature=spec.send_temperature,
-                max_output_tokens=1,
+                max_output_tokens=VERIFY_MAX_TOKENS,
                 timeout_s=config.timeout_s,
             )
         except Exception as exc:  # noqa: BLE001 - ping failures become a non-zero verify exit
@@ -483,7 +506,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run each question against each model under identical treatment."
     )
-    parser.add_argument("--questions", type=Path, default=None, help="JSON array of Question objects")
+    parser.add_argument(
+        "--questions", type=Path, default=None, help="JSON array of Question objects"
+    )
     parser.add_argument("--wave", default=None, help="Wave slug (1 → wave-1, smoke → wave-smoke)")
     parser.add_argument(
         "--config",
@@ -497,7 +522,9 @@ def _build_parser() -> argparse.ArgumentParser:
         default=Path("results"),
         help="Directory that will contain wave-N/ folders",
     )
-    parser.add_argument("--dry-run", action="store_true", help="Write fake transcripts; no API calls")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Write fake transcripts; no API calls"
+    )
     parser.add_argument(
         "--model",
         action="append",

@@ -355,6 +355,7 @@ class XAIAdapter:
             request_temperature=request_temperature,
             response_model=response_model,
             sdk_version=package_version("openai"),
+            truncated=_chat_truncated(response),
         )
 
 
@@ -414,6 +415,7 @@ class OpenAIAdapter:
             request_temperature=request_temperature,
             response_model=response_model,
             sdk_version=package_version("openai"),
+            truncated=_responses_truncated(response),
         )
 
 
@@ -471,6 +473,7 @@ class AnthropicAdapter:
             request_temperature=request_temperature,
             response_model=response_model,
             sdk_version=package_version("anthropic"),
+            truncated=_anthropic_truncated(response),
         )
 
 
@@ -542,7 +545,42 @@ class GoogleAdapter:
             request_temperature=request_temperature,
             response_model=response_model,
             sdk_version=package_version("google-genai"),
+            truncated=_google_truncated(response),
         )
+
+
+def _chat_truncated(response: object) -> bool:
+    """True when a Chat Completions response stopped at the token cap."""
+    choices = getattr(response, "choices", None)
+    if not isinstance(choices, list) or len(choices) == 0:
+        return False
+    return getattr(choices[0], "finish_reason", None) == "length"
+
+
+def _responses_truncated(response: object) -> bool:
+    """True when an OpenAI Responses call ended incomplete on max_output_tokens."""
+    if getattr(response, "status", None) != "incomplete":
+        return False
+    details = getattr(response, "incomplete_details", None)
+    return getattr(details, "reason", None) == "max_output_tokens"
+
+
+def _anthropic_truncated(response: object) -> bool:
+    """True when an Anthropic message stopped with ``stop_reason == max_tokens``."""
+    return getattr(response, "stop_reason", None) == "max_tokens"
+
+
+def _google_truncated(response: object) -> bool:
+    """True when the first Gemini candidate finished on MAX_TOKENS."""
+    candidates = getattr(response, "candidates", None)
+    if not isinstance(candidates, list) or len(candidates) == 0:
+        return False
+    reason = getattr(candidates[0], "finish_reason", None)
+    if reason is None:
+        return False
+    name = getattr(reason, "name", None)
+    text = name if isinstance(name, str) else str(reason)
+    return text.endswith("MAX_TOKENS")
 
 
 def _chat_text(response: object) -> str:
