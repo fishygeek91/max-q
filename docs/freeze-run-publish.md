@@ -47,7 +47,7 @@ model runs until Posted is filled.
 
 ```
 python -m maxq.runner --wave N --questions questions/private/wave-N.json
-python -m maxq.scoring --wave N --questions questions/private/wave-N.json --judge-model claude-fable-5-1
+python -m maxq.scoring --wave N --questions questions/private/wave-N.json --judge-model anthropic/claude-fable-5-1
 python scripts/render_rubric_review.py --wave N --questions questions/private/wave-N.json
 python -m maxq.scoring --wave N --questions questions/private/wave-N.json \
   --accept-from results/wave-N/accept.json --apply-overrides results/wave-N/human-overrides.json \

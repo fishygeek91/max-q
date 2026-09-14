@@ -68,11 +68,14 @@ Every model gets the same closed-book treatment. The committed spec is
 - **Gemini safety:** the Google adapter sets `BLOCK_NONE` so propulsion/GNC
   items are not pre-filtered. This is not jailbreak text in the shared prompt.
   A model refusal (HTTP 200) is a completed attempt.
-- **Models (pinned ids):** `grok-4.6` (permanent 4.6 baseline),
-  `claude-fable-5-1`, `gpt-6-astra`, `gemini-3.1-pro` (preview flagship),
-  `gemini-3.8-flash` (small-model floor). A later Grok generation is a new
-  config row. Transcripts store `requested_model`, `response_model`, and UTC
-  `started_at` / `finished_at`.
+- **Models (pinned ids):** OpenRouter slugs `x-ai/grok-4.6` (permanent 4.6
+  baseline), `anthropic/claude-fable-5-1`, `openai/gpt-6-astra`,
+  `google/gemini-3.1-pro-preview` (preview flagship; the unsuffixed
+  `google/gemini-3.1-pro` is not a live OpenRouter id), `google/gemini-3.8-flash`
+  (small-model floor). Google rows pin `openrouter_providers: ["Google AI Studio"]`
+  (OpenRouter's first-party Gemini API name; `Google` is Vertex). A later Grok
+  generation is a new config row. Transcripts store `requested_model`,
+  `response_model`, `served_by`, and UTC `started_at` / `finished_at`.
 - **Resume:** skip a triple only when a valid transcript exists and `error` is
   null. `cost.json` is rebuilt from transcripts on disk after every write.
 
@@ -114,7 +117,8 @@ the newer model see the questions and void the delta.
 All contestant calls are routed through OpenRouter with one operator key.
 Fallback routing is disabled on every request (`provider.allow_fallbacks:
 false`, plus an explicit first-party `order` where pinned in the config), so a
-call is served by the intended upstream or fails loudly. The serving provider
-OpenRouter reports is persisted in every transcript as `served_by` and is part
-of the published audit trail. Direct vendor adapters remain in the codebase as
-a fallback path.
+call is served by the intended upstream or fails loudly. Google rows pin
+`Google AI Studio` (OpenRouter's first-party Gemini API `provider_name`);
+`Google` is Vertex and is not used. The serving provider OpenRouter reports is
+persisted in every transcript as `served_by` and is part of the published audit
+trail. Direct vendor adapters remain in the codebase as a fallback path.

@@ -568,11 +568,14 @@ def test_config_pins_expected_models() -> None:
         "x-ai/grok-4.6",
         "anthropic/claude-fable-5-1",
         "openai/gpt-6-astra",
-        "google/gemini-3.1-pro",
+        "google/gemini-3.1-pro-preview",
         "google/gemini-3.8-flash",
     ]
     assert all(spec.provider == "openrouter" for spec in config.models)
     assert all(spec.enabled for spec in config.models)
+    by_id = {spec.id: spec for spec in config.models}
+    assert by_id["google/gemini-3.1-pro-preview"].openrouter_providers == ["Google AI Studio"]
+    assert by_id["google/gemini-3.8-flash"].openrouter_providers == ["Google AI Studio"]
     assert config.temperature == 0.0
     assert config.attempts == 3
     assert config.prompt_template_id == "maxq-closed-book-v1"

@@ -16,15 +16,21 @@ Stem-free log of the pre-4.7 rehearsal. Transcripts stay gitignored under
 
 ## Enabled run set
 
-Derived only from `enabled: true` in `config/run.json` (do not hardcode a count):
+Derived only from `enabled: true` in `config/run.json` (do not hardcode a count).
+All five rows are enabled and routed through OpenRouter (`OPENROUTER_API_KEY`):
 
-- `grok-4.6` (baseline)
-- `claude-fable-5-1` (flagship; rubric judge for the first pass)
-- `gemini-3.1-pro` (flagship)
-- `gemini-3.8-flash` (small_floor)
+- `x-ai/grok-4.6` (baseline; `served_by` pin `xAI`)
+- `anthropic/claude-fable-5-1` (flagship; rubric judge; pin `Anthropic`)
+- `openai/gpt-6-astra` (flagship; re-enabled via OpenRouter; pin `OpenAI`)
+- `google/gemini-3.1-pro-preview` (flagship; live OpenRouter slug — `google/gemini-3.1-pro` is 404; pin `Google AI Studio`)
+- `google/gemini-3.8-flash` (small_floor; pin `Google AI Studio`)
 
-`gpt-6-astra` stays `enabled: false` (no API access for this operator). The
-writeup must say OpenAI's flagship was not tested.
+`Google AI Studio` is OpenRouter's first-party Gemini API `provider_name` on
+`GET /api/v1/models/.../endpoints`. `Google` is Vertex (`google-vertex/global`).
+
+Pricing in `config/run.json` is OpenRouter's listed first-party standard
+(non-flex, non-priority) rate as of 2026-09-14. Rubric queue is 8 questions ×
+5 models × 3 attempts = 120 rows.
 
 ## Smoke (no Wave 1 contamination)
 
@@ -35,15 +41,12 @@ writeup must say OpenAI's flagship was not tested.
 
 ## Live run
 
-**Not started.** `python -m maxq.runner --verify-models` exited 1 in this
-environment: `XAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GOOGLE_API_KEY` /
-`GEMINI_API_KEY` were unset. Resume the paid wave locally after exporting those
-three keys:
+Requires `OPENROUTER_API_KEY` only (vendor keys are unused for this wave).
 
 ```
 python -m maxq.runner --verify-models
 python -m maxq.runner --wave 1 --questions questions/private/wave-1.json
-python -m maxq.scoring --wave 1 --questions questions/private/wave-1.json --judge-model claude-fable-5-1
+python -m maxq.scoring --wave 1 --questions questions/private/wave-1.json --judge-model anthropic/claude-fable-5-1
 python scripts/render_rubric_review.py --wave 1 --questions questions/private/wave-1.json
 ```
 
@@ -64,10 +67,10 @@ follow-up edit of this file after the live wave (from `scored.json`,
 
 ## Harness fixes found during rehearsal
 
-1. **Enabled-row tests lagged the Astra disable.** `test_config_pins_expected_models`
-   and the dry-run provider set still required `gpt-6-astra` / `openai` after
-   commit `2586b84`. Tests now pin every config row and derive the run set from
-   `enabled`.
+1. **Enabled-row tests lagged the Astra disable, then OpenRouter re-enabled Astra.**
+   Tests pin every committed OpenRouter slug; the run set is `enabled: true`
+   (five rows). Direct OpenAI access is still unavailable; OpenRouter is the
+   path that restored the flagship.
 2. **`--accept-llm` plus `--model` would drop contestants from `scored.json`.**
    Added `--accept-from` so a human can confirm listed triples while still scoring
    every enabled row.
