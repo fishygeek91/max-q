@@ -39,7 +39,7 @@
     {
       "id": "gpt-6-astra",
       "provider": "openai",
-      "enabled": true,
+      "enabled": false,
       "role": "flagship",
       "send_temperature": false,
       "pricing_usd_per_mtok": {
@@ -47,7 +47,7 @@
         "output": 75.0,
         "cached_input": null
       },
-      "notes": "OpenAI flagship as of config commit. Pricing is an estimate — confirm on the dashboard before a paid wave. Prefer a dated snapshot id in this file if OpenAI publishes one."
+      "notes": "DISABLED 2026-09-14: no API access to gpt-6-astra for this operator. Rationale recorded per publish-gate policy; wave publishes without an OpenAI row unless an accessible OpenAI model is added as a substitute row before freeze-adjacent runs. The published writeup must state OpenAI's flagship was not tested and why. OpenAI flagship as of config commit. Pricing is an estimate — confirm on the dashboard before a paid wave. Prefer a dated snapshot id in this file if OpenAI publishes one."
     },
     {
       "id": "gemini-3.1-pro",
