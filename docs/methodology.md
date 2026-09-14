@@ -47,6 +47,9 @@ Mechanical wherever possible. The CLI is `python -m maxq.scoring`.
 - **Reporting:** `results/wave-N/scored.json` plus a model×tier table
   (undergrad / practitioner / expert) with pass@1, best-of-n, truncated,
   unparseable, and pending-rubric counts. Never a single headline number.
+- **Human confirm:** `--accept-from PATH` confirms listed
+  `(question_id, model, attempt)` triples as-is without changing which
+  models are scored. Blanket `--accept-llm` is for smoke/fixtures only.
 
 ## Identical treatment
 Every model gets the same closed-book treatment. The committed spec is

@@ -30,8 +30,11 @@ results/wave-N/overrides.jsonl
 the question file; they are not copied back into transcripts). `scored.json` is
 a `WaveScoreReport`: per-attempt rows plus per-model pass@1 / best-of-n with a
 mandatory undergrad / practitioner / expert breakdown. Rubric items are first
-scored by an injectable judge, then confirmed via `--accept-llm` or
-`--apply-overrides`; the override log is append-only.
+scored by an injectable judge, then confirmed via `--accept-from` (listed
+triples; Wave 1) or `--accept-llm` (smoke/fixtures only) or
+`--apply-overrides`; the override log is append-only. Grouped human review
+markdown is `python scripts/render_rubric_review.py` (gitignored; contains
+stems). Stem-free totals: `python scripts/wave_metrics.py --wave N`.
 
 ## Resume
 

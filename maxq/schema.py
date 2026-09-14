@@ -356,6 +356,14 @@ class RubricQueueItem(BaseModel):
     confirmed_scores: list[bool] | None = None
 
 
+class RubricAcceptSpec(BaseModel):
+    """Human accept-as-is of one pending queue row (``--accept-from``)."""
+
+    question_id: str
+    model: str
+    attempt: int = Field(ge=1)
+
+
 class RubricOverrideSpec(BaseModel):
     """Human edit applied via ``--apply-overrides`` (JSON array on disk)."""
 
