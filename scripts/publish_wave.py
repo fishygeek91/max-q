@@ -21,7 +21,6 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import re
 import shutil
 import subprocess
 import sys
@@ -37,20 +36,7 @@ from maxq.runner import (
     transcript_path,
     wave_dirname,
 )
-from maxq.wave import WaveError, load_questions, sha256_file
-
-HASH_ROW_RE = re.compile(r"^\|\s*(?P<wave>[^|]+?)\s*\|[^|]*\|\s*(?P<sha>[0-9a-f]{64})\s*\|")
-
-
-def frozen_hash_for(wave_label: str, hashes_path: Path) -> str | None:
-    """Return the committed SHA-256 for ``wave_label`` from HASHES.md, if any."""
-    if not hashes_path.is_file():
-        return None
-    for line in hashes_path.read_text(encoding="utf-8").splitlines():
-        match = HASH_ROW_RE.match(line.strip())
-        if match is not None and match.group("wave") == wave_label:
-            return match.group("sha")
-    return None
+from maxq.wave import WaveError, frozen_hash_for, load_questions, sha256_file
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -10,11 +10,23 @@ from pathlib import Path
 import pytest
 
 from maxq.schema import Difficulty, Domain, Question, ScoringMode
-from maxq.wave import WaveError, check_inventory, load_questions, sha256_file
+from maxq.wave import (
+    HASH_ROW_RE,
+    HashRowError,
+    WaveError,
+    append_or_verify_hash_row,
+    check_inventory,
+    format_hash_row,
+    frozen_hash_for,
+    hashes_wave_label,
+    load_questions,
+    sha256_file,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_wave.json"
 PRIVATE_WAVE = ROOT / "questions" / "private" / "wave-1.json"
+WAVE1_FROZEN_SHA = "0c38cba1425bfe22ddb9698b5d9a8bf634f20c4d6e65ca41e66b9a393b8e9e24"
 
 DOMAINS: tuple[Domain, ...] = (
     "propulsion",
@@ -145,6 +157,100 @@ def test_sha256_known_bytes(tmp_path: Path) -> None:
     payload = b"max-q-wave-hash-fixture\n"
     path.write_bytes(payload)
     assert sha256_file(path) == hashlib.sha256(payload).hexdigest()
+
+
+def test_hashes_wave_label_strips_prefix() -> None:
+    """CLI --wave values normalize to the HASHES.md Wave column."""
+    assert hashes_wave_label("1") == "1"
+    assert hashes_wave_label("wave-1") == "1"
+    assert hashes_wave_label("WAVE-1") == "1"
+
+
+def test_format_hash_row_round_trip() -> None:
+    """format_hash_row is parseable by HASH_ROW_RE and leaves Posted/Published open."""
+    digest = "ab" * 32
+    line = format_hash_row("2", "2026-09-14T12:00:00Z", digest)
+    assert line == f"| 2 | 2026-09-14T12:00:00Z | {digest} | — | — |"
+    match = HASH_ROW_RE.match(line)
+    assert match is not None
+    assert match.group("wave") == "2"
+    assert match.group("frozen") == "2026-09-14T12:00:00Z"
+    assert match.group("sha") == digest
+
+
+def test_frozen_hash_for_committed_wave1() -> None:
+    """The committed Wave 1 HASHES.md row parses to the posted digest."""
+    hashes = ROOT / "questions" / "HASHES.md"
+    assert frozen_hash_for("1", hashes) == WAVE1_FROZEN_SHA
+    assert frozen_hash_for("99", hashes) is None
+
+
+def test_append_or_verify_inserts_inside_table(tmp_path: Path) -> None:
+    """A new row lands in the markdown table, before the Posted prose."""
+    hashes = tmp_path / "HASHES.md"
+    hashes.write_text((ROOT / "questions" / "HASHES.md").read_text(encoding="utf-8"), encoding="utf-8")
+    digest = "cd" * 32
+    update = append_or_verify_hash_row(
+        hashes, "99", digest, "2026-09-14T12:00:00Z", write=True
+    )
+    assert update.status == "appended"
+    text = hashes.read_text(encoding="utf-8")
+    assert text.index("| 99 |") < text.index("**Posted**")
+    assert frozen_hash_for("1", hashes) == WAVE1_FROZEN_SHA
+    assert frozen_hash_for("99", hashes) == digest
+
+
+def test_append_or_verify_is_idempotent(tmp_path: Path) -> None:
+    """A second write with the same digest leaves HASHES.md unchanged."""
+    hashes = tmp_path / "HASHES.md"
+    hashes.write_text((ROOT / "questions" / "HASHES.md").read_text(encoding="utf-8"), encoding="utf-8")
+    digest = "ef" * 32
+    first = append_or_verify_hash_row(
+        hashes, "88", digest, "2026-09-14T12:00:00Z", write=True
+    )
+    before = hashes.read_text(encoding="utf-8")
+    second = append_or_verify_hash_row(
+        hashes, "88", digest, "2026-09-14T13:00:00Z", write=True
+    )
+    assert first.status == "appended"
+    assert second.status == "verified"
+    assert second.row.frozen_utc == "2026-09-14T12:00:00Z"
+    assert hashes.read_text(encoding="utf-8") == before
+
+
+def test_append_or_verify_dry_run_does_not_write(tmp_path: Path) -> None:
+    """write=False reports would_append and does not touch the file."""
+    hashes = tmp_path / "HASHES.md"
+    original = (ROOT / "questions" / "HASHES.md").read_text(encoding="utf-8")
+    hashes.write_text(original, encoding="utf-8")
+    digest = "11" * 32
+    update = append_or_verify_hash_row(
+        hashes, "77", digest, "2026-09-14T12:00:00Z", write=False
+    )
+    assert update.status == "would_append"
+    assert hashes.read_text(encoding="utf-8") == original
+
+
+def test_append_or_verify_refuses_mismatch(tmp_path: Path) -> None:
+    """A different digest for an existing wave is a hard conflict."""
+    hashes = tmp_path / "HASHES.md"
+    hashes.write_text((ROOT / "questions" / "HASHES.md").read_text(encoding="utf-8"), encoding="utf-8")
+    with pytest.raises(HashRowError, match="frozen as"):
+        append_or_verify_hash_row(
+            hashes, "1", "aa" * 32, "2026-09-14T12:00:00Z", write=True
+        )
+    assert frozen_hash_for("1", hashes) == WAVE1_FROZEN_SHA
+
+
+def test_published_waves_match_hashes() -> None:
+    """Published questions/wave-*.json files must match HASHES.md (none yet)."""
+    hashes = ROOT / "questions" / "HASHES.md"
+    published = sorted((ROOT / "questions").glob("wave-*.json"))
+    for path in published:
+        label = hashes_wave_label(path.stem)
+        frozen = frozen_hash_for(label, hashes)
+        assert frozen is not None, f"{path} has no HASHES.md row"
+        assert sha256_file(path) == frozen
 
 
 def _imported_names(path: Path) -> set[str]:

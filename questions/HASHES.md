@@ -18,4 +18,4 @@ link to the question file released after all enabled models are scored, via
 
 Wave 1's commitment is SHA-256 of `questions/private/wave-1.json` **as stored on disk**
 (UTF-8, 39117 bytes). Do not re-serialize, pretty-print, or sort keys before hashing.
-Issue #4 freeze tooling must hash those exact bytes.
+`scripts/freeze_wave.py` hashes those exact bytes.

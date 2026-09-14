@@ -35,7 +35,7 @@ No lab funding. No aerospace employer. No axe to grind. Just the harness, the qu
 
 ## Status
 
-Pre-launch. Wave 1 is frozen (SHA-256 in `questions/HASHES.md`); questions unpublished until scoring. The run harness (`python -m maxq.runner`) and scorer (`python -m maxq.scoring`) are in place: identical-treatment adapters, dry-run smoke, resumable transcripts, unit-aware numeric/series/exact checks, and a file-based rubric confirm queue. No scored live model runs yet. Grok 4.7 not yet released; the committed config pins Grok 4.6 as the baseline row.
+Pre-launch. Wave 1 is frozen (SHA-256 in `questions/HASHES.md`); questions unpublished until scoring. Freeze tooling is `python scripts/freeze_wave.py` (checklist: `docs/freeze-run-publish.md`). The run harness (`python -m maxq.runner`) and scorer (`python -m maxq.scoring`) are in place: identical-treatment adapters, dry-run smoke, resumable transcripts, unit-aware numeric/series/exact checks, and a file-based rubric confirm queue. No scored live model runs yet. Grok 4.7 not yet released; the committed config pins Grok 4.6 as the baseline row.
 
 ## License
 
