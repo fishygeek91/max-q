@@ -123,6 +123,7 @@ RUBRIC_QUEUE_ITEM_KEY_ORDER: tuple[str, ...] = (
     "rubric",
     "llm_scores",
     "llm_notes",
+    "judge_model",
     "status",
     "confirmed_scores",
 )
@@ -347,6 +348,10 @@ class RubricQueueItem(BaseModel):
     rubric: list[str]
     llm_scores: list[bool] | None = None
     llm_notes: str | None = None
+    judge_model: str | None = None
+    """Model id that produced ``llm_scores`` ("stub" for the offline judge).
+    Published with the queue so readers can audit whether a contestant judged
+    itself. None only for rows that never received a first pass."""
     status: RubricQueueStatus = "pending"
     confirmed_scores: list[bool] | None = None
 

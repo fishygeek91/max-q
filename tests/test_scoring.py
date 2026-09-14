@@ -313,7 +313,9 @@ def test_series_match_and_length_mismatch() -> None:
         domain="telemetry",
         difficulty="practitioner",
     )
-    ok = score_series(question, _transcript(question_id="W0-SER-001", text="FINAL: [1.0, 2.0, 3.0]"))
+    ok = score_series(
+        question, _transcript(question_id="W0-SER-001", text="FINAL: [1.0, 2.0, 3.0]")
+    )
     assert ok.status == "correct"
     assert ok.score == 1.0
     short = score_series(question, _transcript(question_id="W0-SER-001", text="FINAL: [1.0, 2.0]"))
@@ -391,9 +393,7 @@ def test_rubric_pending_then_accept_and_override(tmp_path: Path) -> None:
                 text = "FINAL: [1.0, 2.0, 3.0]"
             else:
                 text = "The governing equation is n-dot. Assumption: vacuum."
-            _write_transcript(
-                tmp_path, question_id=question.id, attempt=attempt, text=text
-            )
+            _write_transcript(tmp_path, question_id=question.id, attempt=attempt, text=text)
 
     judge = FakeJudge([True, True])
     pending_report = score_wave(
@@ -405,11 +405,7 @@ def test_rubric_pending_then_accept_and_override(tmp_path: Path) -> None:
         judge=judge,
         accept_llm=False,
     )
-    rubric_rows = [
-        row
-        for row in pending_report.attempts
-        if row.question_id == rubric_q.id
-    ]
+    rubric_rows = [row for row in pending_report.attempts if row.question_id == rubric_q.id]
     assert all(row.status == "pending_rubric" for row in rubric_rows)
     assert all(row.score is None for row in rubric_rows)
     queue_payload = json.loads((tmp_path / "wave-score" / "rubric-queue.json").read_text())
@@ -451,9 +447,7 @@ def test_rubric_pending_then_accept_and_override(tmp_path: Path) -> None:
         overrides=[override],
     )
     attempt_one = next(
-        row
-        for row in overridden.attempts
-        if row.question_id == rubric_q.id and row.attempt == 1
+        row for row in overridden.attempts if row.question_id == rubric_q.id and row.attempt == 1
     )
     assert attempt_one.status == "incorrect"
     assert attempt_one.score == 0.5
@@ -613,7 +607,7 @@ def test_provider_judge_parses_json_from_adapter() -> None:
 
 def test_parse_judge_json_fence_and_mismatch() -> None:
     """Judge JSON may be fenced; wrong-length criteria are rejected."""
-    fenced = parse_judge_json("```json\n{\"criteria\": [true, true], \"notes\": \"ok\"}\n```", 2)
+    fenced = parse_judge_json('```json\n{"criteria": [true, true], "notes": "ok"}\n```', 2)
     assert fenced is not None
     assert fenced.criterion_scores == [True, True]
     assert parse_judge_json('{"criteria": [true], "notes": "short"}', 2) is None
@@ -646,3 +640,44 @@ def test_load_run_config_still_valid() -> None:
     """Scoring tests do not require mutating the committed run config."""
     config = load_run_config(CONFIG)
     assert config.attempts == 3
+
+
+def test_rubric_queue_records_judge_identity(tmp_path: Path) -> None:
+    """The published queue says which model produced the first-pass scores."""
+    from maxq.runner import default_config_path, load_run_config
+    from maxq.scoring import StubRubricJudge, score_wave
+    from maxq.wave import load_questions
+
+    config = load_run_config(default_config_path())
+    questions = [q for q in load_questions(FIXTURE) if q.scoring == "rubric"]
+    assert questions, "scoring fixture needs a rubric question"
+    # dry-run a wave so transcripts exist
+    from maxq.runner import main as runner_main
+
+    assert (
+        runner_main(
+            [
+                "--questions",
+                str(FIXTURE),
+                "--wave",
+                "judgeid",
+                "--results-root",
+                str(tmp_path),
+                "--dry-run",
+            ]
+        )
+        == 0
+    )
+    score_wave(
+        questions=questions,
+        config=config,
+        models=[spec for spec in config.models if spec.enabled],
+        results_root=tmp_path,
+        wave_slug="judgeid",
+        judge=StubRubricJudge(),
+    )
+    queue = json.loads((tmp_path / "wave-judgeid" / "rubric-queue.json").read_text())
+    assert queue, "queue should have rubric rows"
+    assert all(item["judge_model"] == "stub" for item in queue)
+    keys = list(queue[0])
+    assert keys.index("judge_model") == keys.index("status") - 1

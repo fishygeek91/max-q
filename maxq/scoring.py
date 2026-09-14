@@ -86,6 +86,9 @@ _PINT_ERRORS = (
 class RubricJudge(Protocol):
     """First-pass rubric scorer. Tests inject a fake; CLI may use a live adapter."""
 
+    judge_id: str
+    """Identity recorded in the published rubric queue (model id or "stub")."""
+
     def score(
         self,
         *,
@@ -106,6 +109,8 @@ class RubricJudgment:
 
 class StubRubricJudge:
     """Offline judge used by ``--judge-stub``. Marks every bullet unmet."""
+
+    judge_id = "stub"
 
     def score(
         self,
@@ -141,6 +146,7 @@ class ProviderRubricJudge:
         self._model_id = model_id
         self._config = config
         self._send_temperature = send_temperature
+        self.judge_id = model_id
 
     def score(
         self,
@@ -310,9 +316,7 @@ def score_numeric(question: Question, transcript: Transcript) -> ModelAnswer:
     try:
         converted = candidate.to(truth.units)
     except _PINT_ERRORS:
-        note = (
-            f"incompatible units: candidate {candidate.units} vs question {truth.units}"
-        )
+        note = f"incompatible units: candidate {candidate.units} vs question {truth.units}"
         return _model_answer(
             question,
             transcript,
@@ -366,7 +370,10 @@ def score_series(question: Question, transcript: Transcript) -> ModelAnswer:
     truth_values = _parse_truth_series(question.answer)
     if truth_values is None:
         return _extraction_failure(
-            question, transcript, "question series answer is not a numeric JSON array", parsed_answer=None
+            question,
+            transcript,
+            "question series answer is not a numeric JSON array",
+            parsed_answer=None,
         )
     candidate_values = _parse_series_payload(payload)
     if candidate_values is None:
@@ -375,8 +382,7 @@ def score_series(question: Question, transcript: Transcript) -> ModelAnswer:
         )
     if len(candidate_values) != len(truth_values):
         note = (
-            f"series length {len(candidate_values)} does not match truth "
-            f"length {len(truth_values)}"
+            f"series length {len(candidate_values)} does not match truth length {len(truth_values)}"
         )
         return _model_answer(
             question,
@@ -406,9 +412,7 @@ def score_series(question: Question, transcript: Transcript) -> ModelAnswer:
                 parsed_answer=json.dumps(candidate_values),
                 score=0.0,
                 status="unparseable",
-                notes=_truncation_note(
-                    transcript, f"incompatible units on series element {index}"
-                ),
+                notes=_truncation_note(transcript, f"incompatible units on series element {index}"),
             )
         converted.append(float(converted_q.magnitude))
         if not within_rel_tol(candidate, truth, question.rel_tol):
@@ -496,7 +500,10 @@ def score_rubric(
         )
     if criterion_scores is None:
         return _extraction_failure(
-            question, transcript, "confirmed rubric row is missing criterion_scores", parsed_answer=None
+            question,
+            transcript,
+            "confirmed rubric row is missing criterion_scores",
+            parsed_answer=None,
         )
     score = _mean_bools(criterion_scores)
     status: AttemptStatus = "correct" if score == 1.0 else "incorrect"
@@ -665,9 +672,7 @@ def summarize_model(
 
 def format_score_table(report: WaveScoreReport) -> str:
     """Return a model×tier table. Never a single headline number."""
-    header = (
-        "model\ttier\tn\tpass@1\tbest-of-n\ttruncated\tunparseable\tpending_rubric"
-    )
+    header = "model\ttier\tn\tpass@1\tbest-of-n\ttruncated\tunparseable\tpending_rubric"
     lines = [header]
     for summary in report.models:
         for tier in TIER_ORDER:
@@ -707,8 +712,7 @@ def dump_score_report(report: WaveScoreReport, path: Path) -> None:
         dumped["by_tier"] = by_tier_obj
         models_payload.append(ordered_dump(dumped, MODEL_SUMMARY_KEY_ORDER))
     attempts_payload = [
-        ordered_dump(row.model_dump(mode="json"), MODEL_ANSWER_KEY_ORDER)
-        for row in report.attempts
+        ordered_dump(row.model_dump(mode="json"), MODEL_ANSWER_KEY_ORDER) for row in report.attempts
     ]
     payload: dict[str, object] = {
         "wave": report.wave,
@@ -721,9 +725,7 @@ def dump_score_report(report: WaveScoreReport, path: Path) -> None:
 
 def dump_rubric_queue(items: Sequence[RubricQueueItem], path: Path) -> None:
     """Write the human-confirm queue, sorted by question / model / attempt."""
-    ordered_items = sorted(
-        items, key=lambda item: (item.question_id, item.model, item.attempt)
-    )
+    ordered_items = sorted(items, key=lambda item: (item.question_id, item.model, item.attempt))
     payload: list[dict[str, object]] = [
         ordered_dump(item.model_dump(mode="json"), RUBRIC_QUEUE_ITEM_KEY_ORDER)
         for item in ordered_items
@@ -753,9 +755,7 @@ def main(argv: list[str] | None = None, *, judge: RubricJudge | None = None) -> 
             judge_stub=args.judge_stub,
         )
         override_specs = (
-            _load_override_specs(args.apply_overrides)
-            if args.apply_overrides is not None
-            else None
+            _load_override_specs(args.apply_overrides) if args.apply_overrides is not None else None
         )
         report = score_wave(
             questions=questions,
@@ -779,7 +779,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Score transcripts: mechanical checkers plus a rubric confirm queue."
     )
-    parser.add_argument("--questions", type=Path, required=True, help="JSON array of Question objects")
+    parser.add_argument(
+        "--questions", type=Path, required=True, help="JSON array of Question objects"
+    )
     parser.add_argument("--wave", required=True, help="Wave slug (1 → wave-1, smoke → wave-smoke)")
     parser.add_argument(
         "--config",
@@ -854,18 +856,32 @@ def _resolve_cli_judge(
         return StubRubricJudge()
     if judge_model is None:
         return None
-    provider_name, send_temperature = _judge_provider(
-        config, judge_model, judge_provider
-    )
+    provider_name, send_temperature = _judge_provider(config, judge_model, judge_provider)
     missing = missing_key_errors(provider_name, judge_model)
     if missing is not None:
         raise WaveError(missing)
+    contestants = {spec.id for spec in config.models if spec.enabled}
+    if judge_model in contestants:
+        print(
+            f"warning: judge model {judge_model!r} is also a contestant; "
+            "its first-pass scores on its own answers are self-judged — "
+            "confirm those rows by hand, and say so in the writeup",
+            file=sys.stderr,
+        )
     return ProviderRubricJudge(
         adapter=adapter_for(provider_name, dry_run=False),
         model_id=judge_model,
         config=config,
         send_temperature=send_temperature,
     )
+
+
+def _judge_id(judge: RubricJudge) -> str:
+    """Best-effort judge identity for the audit trail."""
+    value = getattr(judge, "judge_id", None)
+    if isinstance(value, str) and value.strip():
+        return value
+    return type(judge).__name__
 
 
 def _judge_provider(
@@ -878,8 +894,7 @@ def _judge_provider(
         if spec.id == judge_model:
             if judge_provider is not None and judge_provider != spec.provider:
                 raise WaveError(
-                    f"judge model {judge_model!r} is provider {spec.provider}, "
-                    f"not {judge_provider}"
+                    f"judge model {judge_model!r} is provider {spec.provider}, not {judge_provider}"
                 )
             return spec.provider, spec.send_temperature
     if judge_provider is None:
@@ -925,8 +940,10 @@ def _ensure_rubric_first_pass(
                     continue
                 llm_scores = item.llm_scores if item is not None else None
                 llm_notes = item.llm_notes if item is not None else None
+                judge_model = item.judge_model if item is not None else None
                 if llm_scores is None and judge is not None:
                     llm_scores, llm_notes = _run_judge(judge, question, transcript)
+                    judge_model = _judge_id(judge)
                 if item is None:
                     queue[key] = RubricQueueItem(
                         question_id=question.id,
@@ -935,12 +952,14 @@ def _ensure_rubric_first_pass(
                         rubric=list(question.rubric),
                         llm_scores=llm_scores,
                         llm_notes=llm_notes,
+                        judge_model=judge_model,
                         status="pending",
                         confirmed_scores=None,
                     )
                 else:
                     item.llm_scores = llm_scores
                     item.llm_notes = llm_notes
+                    item.judge_model = judge_model
                     item.rubric = list(question.rubric)
 
 
@@ -1272,7 +1291,9 @@ def _append_overrides(path: Path, lines: Sequence[OverrideLogLine]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8", newline="\n") as handle:
         for line in lines:
-            dumped = ordered_dump(line.model_dump(mode="json", by_alias=True), OVERRIDE_LOG_KEY_ORDER)
+            dumped = ordered_dump(
+                line.model_dump(mode="json", by_alias=True), OVERRIDE_LOG_KEY_ORDER
+            )
             handle.write(json.dumps(dumped, ensure_ascii=False) + "\n")
         handle.flush()
         os.fsync(handle.fileno())
