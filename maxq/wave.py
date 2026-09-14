@@ -14,7 +14,9 @@ import re
 import sys
 from collections import Counter
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import pint
 from pydantic import TypeAdapter, ValidationError
@@ -64,6 +66,10 @@ TIER_COUNTS: dict[Difficulty, int] = {
 }
 REL_TOL_MIN = 0.0
 REL_TOL_MAX = 0.05
+SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+HASH_ROW_RE = re.compile(
+    r"^\|\s*(?P<wave>[^|]+?)\s*\|\s*(?P<frozen>[^|]+?)\s*\|\s*(?P<sha>[0-9a-f]{64})\s*\|"
+)
 
 _UREG = pint.UnitRegistry()
 _QUESTIONS_ADAPTER = TypeAdapter(list[Question])
@@ -73,6 +79,28 @@ class WaveError(ValueError):
     """Raised when a wave file fails schema, scoring-field, or inventory checks."""
 
 
+class HashRowError(ValueError):
+    """Raised when HASHES.md is malformed or conflicts with a new digest."""
+
+
+@dataclass(frozen=True)
+class HashRow:
+    """One data row parsed from ``questions/HASHES.md``."""
+
+    wave: str
+    frozen_utc: str
+    sha256: str
+    line: str
+
+
+@dataclass(frozen=True)
+class HashRowUpdate:
+    """Outcome of comparing a digest against ``questions/HASHES.md``."""
+
+    status: Literal["appended", "verified", "would_append"]
+    row: HashRow
+
+
 def sha256_file(path: Path) -> str:
     """Return the lowercase hex SHA-256 digest of ``path`` as stored on disk."""
     digest = hashlib.sha256()
@@ -80,6 +108,124 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(65536), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def hashes_wave_label(wave: str) -> str:
+    """Normalize ``--wave 1`` / ``wave-1`` to the HASHES.md Wave column value."""
+    text = wave.strip()
+    prefix = "wave-"
+    if text.lower().startswith(prefix):
+        return text[len(prefix) :]
+    return text
+
+
+def format_hash_row(wave_label: str, frozen_utc: str, sha256: str) -> str:
+    """Return a HASHES.md table row with Posted and Published left as em dashes."""
+    label = wave_label.strip()
+    timestamp = frozen_utc.strip()
+    digest = sha256.strip().lower()
+    if not label:
+        raise HashRowError("wave label is empty")
+    if not timestamp:
+        raise HashRowError("frozen UTC timestamp is empty")
+    if SHA256_HEX_RE.fullmatch(digest) is None:
+        raise HashRowError(f"invalid SHA-256 digest: {sha256!r}")
+    return f"| {label} | {timestamp} | {digest} | — | — |"
+
+
+def hash_row_for(wave_label: str, hashes_path: Path) -> HashRow | None:
+    """Return the HASHES.md data row for ``wave_label``, if present."""
+    if not hashes_path.is_file():
+        return None
+    return _hash_row_from_text(wave_label, hashes_path.read_text(encoding="utf-8"))
+
+
+def frozen_hash_for(wave_label: str, hashes_path: Path) -> str | None:
+    """Return the committed SHA-256 for ``wave_label`` from HASHES.md, if any."""
+    row = hash_row_for(wave_label, hashes_path)
+    if row is None:
+        return None
+    return row.sha256
+
+
+def append_or_verify_hash_row(
+    hashes_path: Path,
+    wave_label: str,
+    sha256: str,
+    frozen_utc: str,
+    *,
+    write: bool,
+) -> HashRowUpdate:
+    """Append a HASHES.md row or verify it already matches ``sha256``.
+
+    Never duplicates a wave. Never changes Frozen UTC, Posted, or Published on
+    an existing row. Raises ``HashRowError`` if the wave is already frozen to a
+    different digest.
+    """
+    if not hashes_path.is_file():
+        raise FileNotFoundError(f"{hashes_path}: file not found")
+    digest = sha256.strip().lower()
+    proposed = format_hash_row(wave_label, frozen_utc, digest)
+    text = hashes_path.read_text(encoding="utf-8")
+    existing = _hash_row_from_text(wave_label.strip(), text)
+    if existing is not None:
+        if existing.sha256 == digest:
+            return HashRowUpdate(status="verified", row=existing)
+        raise HashRowError(
+            f"wave {wave_label.strip()!r} is frozen as {existing.sha256}, file is {digest}"
+        )
+    new_row = HashRow(
+        wave=wave_label.strip(),
+        frozen_utc=frozen_utc.strip(),
+        sha256=digest,
+        line=proposed,
+    )
+    if not write:
+        return HashRowUpdate(status="would_append", row=new_row)
+    hashes_path.write_text(_insert_hash_row(text, proposed), encoding="utf-8", newline="\n")
+    return HashRowUpdate(status="appended", row=new_row)
+
+
+def _hash_row_from_text(wave_label: str, text: str) -> HashRow | None:
+    """Return the first HASHES.md data row whose Wave column equals ``wave_label``."""
+    for line in text.splitlines():
+        parsed = _parse_hash_row(line)
+        if parsed is not None and parsed.wave == wave_label:
+            return parsed
+    return None
+
+
+def _parse_hash_row(line: str) -> HashRow | None:
+    """Parse a HASHES.md data row, or return None for headers and prose."""
+    match = HASH_ROW_RE.match(line.strip())
+    if match is None:
+        return None
+    return HashRow(
+        wave=match.group("wave"),
+        frozen_utc=match.group("frozen").strip(),
+        sha256=match.group("sha"),
+        line=line.strip(),
+    )
+
+
+def _insert_hash_row(text: str, new_line: str) -> str:
+    """Insert ``new_line`` after the last HASHES.md data row (or the separator)."""
+    lines = text.splitlines()
+    insert_at: int | None = None
+    separator_at: int | None = None
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if HASH_ROW_RE.match(stripped) is not None:
+            insert_at = index
+        elif stripped.startswith("|---"):
+            separator_at = index
+    if insert_at is not None:
+        lines.insert(insert_at + 1, new_line)
+    elif separator_at is not None:
+        lines.insert(separator_at + 1, new_line)
+    else:
+        raise HashRowError("HASHES.md has no markdown table to append to")
+    return "\n".join(lines) + "\n"
 
 
 def dump_questions(questions: list[Question], path: Path) -> None:

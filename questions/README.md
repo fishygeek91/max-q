@@ -5,3 +5,5 @@ Hash commitments in HASHES.md. Published waves land here as `wave-N.json` after 
 
 Wave 1 is frozen (see HASHES.md). Questions remain unpublished until scoring. No model runs yet.
 The mix (ids, domains, difficulties, scoring modes) is in `wave-1-inventory.md`.
+
+Launch-day freeze → run → publish sequence: `docs/freeze-run-publish.md`.

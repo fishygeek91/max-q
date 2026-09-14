@@ -78,7 +78,9 @@ transcripts are published.
 
 ## Credibility protocol
 SHA-256 of the frozen question file is committed publicly BEFORE any model runs
-(questions/HASHES.md + public post). Questions published after scoring. Code MIT,
+(questions/HASHES.md + public post). Freeze, post, run, and publish are the
+checklist in `docs/freeze-run-publish.md` (`scripts/freeze_wave.py`, then
+`scripts/publish_wave.py`). Questions published after scoring. Code MIT,
 questions CC BY 4.0. No funding from, or affiliation with, any AI lab or
 aerospace company.
 
