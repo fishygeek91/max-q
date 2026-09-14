@@ -189,13 +189,13 @@ def test_dry_run_cost_matches_transcripts_and_resume_does_not_duplicate(
 
 def test_resume_retries_error_transcripts(tmp_path: Path) -> None:
     """A transcript with error set is overwritten on the next dry-run."""
-    assert _run_dry(tmp_path, extra=["--model", "grok-4.6"]) == 0
-    path = tmp_path / "wave-smoke" / "grok-4.6" / "W0-TEST-001-a1.json"
+    assert _run_dry(tmp_path, extra=["--model", "x-ai/grok-4.6"]) == 0
+    path = tmp_path / "wave-smoke" / "x-ai--grok-4.6" / "W0-TEST-001-a1.json"
     transcript = Transcript.model_validate(json.loads(path.read_text(encoding="utf-8")))
     transcript.error = "injected failure"
     path.write_text(transcript.model_dump_json(indent=2) + "\n", encoding="utf-8")
     assert load_complete_transcript(path) is None
-    assert _run_dry(tmp_path, extra=["--model", "grok-4.6"]) == 0
+    assert _run_dry(tmp_path, extra=["--model", "x-ai/grok-4.6"]) == 0
     again = Transcript.model_validate(json.loads(path.read_text(encoding="utf-8")))
     assert again.error is None
     assert again.text.startswith("DRY-RUN")
@@ -220,7 +220,7 @@ def test_module_cli_dry_run_subprocess(tmp_path: Path) -> None:
             "--config",
             str(CONFIG),
             "--model",
-            "grok-4.6",
+            "x-ai/grok-4.6",
         ],
         cwd=str(ROOT),
         capture_output=True,
@@ -229,7 +229,7 @@ def test_module_cli_dry_run_subprocess(tmp_path: Path) -> None:
         env=env,
     )
     assert result.returncode == 0, result.stderr
-    files = list((tmp_path / "wave-smoke" / "grok-4.6").glob("*-a*.json"))
+    files = list((tmp_path / "wave-smoke" / "x-ai--grok-4.6").glob("*-a*.json"))
     assert len(files) == 9
 
 
@@ -286,7 +286,7 @@ def test_live_run_fail_fast_without_keys(tmp_path: Path, monkeypatch: pytest.Mon
             "--config",
             str(CONFIG),
             "--model",
-            "grok-4.6",
+            "x-ai/grok-4.6",
         ]
     )
     assert code == 1
@@ -295,7 +295,9 @@ def test_live_run_fail_fast_without_keys(tmp_path: Path, monkeypatch: pytest.Mon
 
 def test_verify_models_dry_run_no_network() -> None:
     """``--verify-models --dry-run`` pings the dry-run adapter and exits 0."""
-    code = main(["--verify-models", "--dry-run", "--config", str(CONFIG), "--model", "grok-4.6"])
+    code = main(
+        ["--verify-models", "--dry-run", "--config", str(CONFIG), "--model", "x-ai/grok-4.6"]
+    )
     assert code == 0
 
 
@@ -307,7 +309,7 @@ def test_retry_on_429_then_success() -> None:
         retry_max=5,
         retry_base_s=0.0,
         sleep=False,
-        model_id="grok-4.6",
+        model_id="x-ai/grok-4.6",
         system="s",
         user="u",
         temperature=0.0,
@@ -325,7 +327,7 @@ def test_retry_on_429_then_success() -> None:
             retry_max=5,
             retry_base_s=0.0,
             sleep=False,
-            model_id="grok-4.6",
+            model_id="x-ai/grok-4.6",
             system="s",
             user="u",
             temperature=0.0,
@@ -409,7 +411,7 @@ def test_xai_adapter_no_tools_canonical_messages(monkeypatch: pytest.MonkeyPatch
     init_kwargs: dict[str, object] = {}
 
     class FakeResponse:
-        model = "grok-4.6"
+        model = "x-ai/grok-4.6"
         usage = SimpleNamespace(
             prompt_tokens=11,
             completion_tokens=4,
@@ -437,7 +439,7 @@ def test_xai_adapter_no_tools_canonical_messages(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setenv("XAI_API_KEY", "sk-test-xai")
     _patch_openai(monkeypatch, FakeClient)
     result = XAIAdapter().complete(
-        model_id="grok-4.6",
+        model_id="x-ai/grok-4.6",
         system="SYS",
         user="USR",
         temperature=0.0,
@@ -559,24 +561,117 @@ def test_google_adapter_block_none_and_canonical_text(monkeypatch: pytest.Monkey
 
 
 def test_config_pins_expected_models() -> None:
-    """Committed config lists every provider row; the run set is enabled rows."""
+    """Committed config routes every row through OpenRouter; all five enabled."""
     config = load_run_config(CONFIG)
     ids = [spec.id for spec in config.models]
     assert ids == [
-        "grok-4.6",
-        "claude-fable-5-1",
-        "gpt-6-astra",
-        "gemini-3.1-pro",
-        "gemini-3.8-flash",
+        "x-ai/grok-4.6",
+        "anthropic/claude-fable-5-1",
+        "openai/gpt-6-astra",
+        "google/gemini-3.1-pro",
+        "google/gemini-3.8-flash",
     ]
-    enabled_ids = [spec.id for spec in config.models if spec.enabled]
-    disabled_ids = [spec.id for spec in config.models if not spec.enabled]
-    assert "gpt-6-astra" in ids
-    assert "gpt-6-astra" in disabled_ids
-    assert "gpt-6-astra" not in enabled_ids
+    assert all(spec.provider == "openrouter" for spec in config.models)
+    assert all(spec.enabled for spec in config.models)
     assert config.temperature == 0.0
     assert config.attempts == 3
     assert config.prompt_template_id == "maxq-closed-book-v1"
+
+
+def test_openrouter_adapter_pins_routing_and_records_served_by(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OpenRouter calls disable fallbacks, pin order, and surface served_by."""
+    from maxq.providers import OpenRouterAdapter
+
+    captured: dict[str, object] = {}
+
+    class FakeCompletions:
+        def create(self, **kwargs: object) -> object:
+            captured.update(kwargs)
+            return SimpleNamespace(
+                model="openai/gpt-6-astra",
+                provider="OpenAI",
+                choices=[
+                    SimpleNamespace(
+                        finish_reason="stop",
+                        message=SimpleNamespace(content="ok\nFINAL: 1 m/s"),
+                    )
+                ],
+                usage=SimpleNamespace(
+                    prompt_tokens=10,
+                    completion_tokens=5,
+                    prompt_tokens_details=None,
+                ),
+                model_dump=lambda mode="python": {"model": "openai/gpt-6-astra"},
+            )
+
+    class FakeClient:
+        def __init__(self, **kwargs: object) -> None:
+            captured["base_url"] = kwargs.get("base_url")
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-openrouter")
+    monkeypatch.setattr("maxq.providers.OpenAI", FakeClient)
+    result = OpenRouterAdapter(providers_order=["OpenAI"]).complete(
+        model_id="openai/gpt-6-astra",
+        system="SYS",
+        user="USR",
+        temperature=0.0,
+        send_temperature=False,
+        max_output_tokens=64,
+        timeout_s=5.0,
+    )
+    assert captured["base_url"] == "https://openrouter.ai/api/v1"
+    extra = captured["extra_body"]
+    assert extra == {"provider": {"allow_fallbacks": False, "order": ["OpenAI"]}}
+    assert "temperature" not in captured
+    assert result.served_by == "OpenAI"
+    assert result.response_model == "openai/gpt-6-astra"
+    assert result.truncated is False
+    assert "sk-test-openrouter" not in json.dumps(result.raw_request)
+
+
+def test_transcript_served_by_key_position(tmp_path: Path) -> None:
+    """served_by is persisted right after response_model in transcript JSON."""
+    from maxq.runner import _success_transcript, dump_transcript
+    from maxq.schema import RenderedMessage
+
+    config = load_run_config(CONFIG)
+    spec = config.models[0]
+    questions = load_questions(FIXTURE)
+    result = AdapterResult(
+        text="FINAL: 1 m/s",
+        usage=TokenUsage(input_tokens=1, output_tokens=1),
+        raw_request={},
+        raw_response={},
+        request_temperature=None,
+        response_model=spec.id,
+        sdk_version="test",
+        served_by="xAI",
+    )
+    transcript = _success_transcript(
+        question=questions[0],
+        spec=spec,
+        attempt=1,
+        wave="wave-smoke",
+        config=config,
+        config_sha="0" * 64,
+        messages=[
+            RenderedMessage(role="system", content="s"),
+            RenderedMessage(role="user", content="u"),
+        ],
+        max_output_tokens=64,
+        dry_run=True,
+        started_at="2026-09-14T00:00:00Z",
+        result=result,
+    )
+    path = tmp_path / "t.json"
+    dump_transcript(transcript, path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["served_by"] == "xAI"
+    keys = list(payload)
+    assert keys.index("served_by") == keys.index("response_model") + 1
 
 
 def test_empty_questions_rejected(tmp_path: Path) -> None:
@@ -641,7 +736,7 @@ def test_transcript_records_truncated_flag(tmp_path: Path) -> None:
     from maxq.schema import RenderedMessage
 
     config = load_run_config(CONFIG)
-    spec = next(item for item in config.models if item.provider == "google")
+    spec = next(item for item in config.models if item.id.startswith("google/"))
     questions = load_questions(FIXTURE)
     result = AdapterResult(
         text="",
@@ -685,7 +780,7 @@ def test_google_models_have_token_budget_override() -> None:
     config = load_run_config(CONFIG)
     for spec in config.models:
         effective = effective_max_output_tokens(spec, config)
-        if spec.provider == "google":
+        if spec.id.startswith("google/"):
             assert spec.max_output_tokens is not None
             assert effective == spec.max_output_tokens
             assert effective > config.max_output_tokens

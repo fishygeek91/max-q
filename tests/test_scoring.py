@@ -195,7 +195,9 @@ def _write_transcript(
         truncated=truncated,
         error=error,
     )
-    path = results_root / "wave-score" / model_id / f"{question_id}-a{attempt}.json"
+    from maxq.runner import model_slug
+
+    path = results_root / "wave-score" / model_slug(model_id) / f"{question_id}-a{attempt}.json"
     dump_transcript(transcript, path)
     return path
 
@@ -610,7 +612,7 @@ def test_cli_table_includes_every_tier_not_a_headline(tmp_path: Path) -> None:
                 question_id=question.id,
                 attempt=attempt,
                 text=text,
-                model_id="grok-4.6",
+                model_id="x-ai/grok-4.6",
             )
     code = main(
         [
@@ -623,7 +625,7 @@ def test_cli_table_includes_every_tier_not_a_headline(tmp_path: Path) -> None:
             "--config",
             str(CONFIG),
             "--model",
-            "grok-4.6",
+            "x-ai/grok-4.6",
             "--judge-stub",
             "--accept-llm",
         ]
@@ -635,7 +637,7 @@ def test_cli_table_includes_every_tier_not_a_headline(tmp_path: Path) -> None:
     assert "practitioner" in scored["models"][0]["by_tier"]
     assert "expert" in scored["models"][0]["by_tier"]
     transcript_before = (
-        tmp_path / "wave-score" / "grok-4.6" / f"{questions[0].id}-a1.json"
+        tmp_path / "wave-score" / "x-ai--grok-4.6" / f"{questions[0].id}-a1.json"
     ).read_text(encoding="utf-8")
     assert "answer" not in json.loads(transcript_before)
     assert "rel_tol" not in json.loads(transcript_before)
@@ -658,7 +660,7 @@ def test_cli_prints_tier_table(tmp_path: Path, capsys: pytest.CaptureFixture[str
                 question_id=question.id,
                 attempt=attempt,
                 text=text,
-                model_id="grok-4.6",
+                model_id="x-ai/grok-4.6",
             )
     code = main(
         [
@@ -671,7 +673,7 @@ def test_cli_prints_tier_table(tmp_path: Path, capsys: pytest.CaptureFixture[str
             "--config",
             str(CONFIG),
             "--model",
-            "grok-4.6",
+            "x-ai/grok-4.6",
             "--judge-stub",
         ]
     )
@@ -683,7 +685,7 @@ def test_cli_prints_tier_table(tmp_path: Path, capsys: pytest.CaptureFixture[str
     assert "undergrad" in stdout
     assert "practitioner" in stdout
     assert "expert" in stdout
-    numeric_lines = [line for line in stdout.splitlines() if line.startswith("grok-4.6")]
+    numeric_lines = [line for line in stdout.splitlines() if line.startswith("x-ai/grok-4.6")]
     assert len(numeric_lines) == 3
 
 

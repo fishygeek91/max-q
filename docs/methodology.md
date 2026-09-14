@@ -108,3 +108,13 @@ transcripts and the question file still matches its frozen hash. In
 particular: after the Grok 4.6 baseline run, the wave stays private until the
 next Grok generation has been run and scored — publishing in between would let
 the newer model see the questions and void the delta.
+
+## API gateway
+
+All contestant calls are routed through OpenRouter with one operator key.
+Fallback routing is disabled on every request (`provider.allow_fallbacks:
+false`, plus an explicit first-party `order` where pinned in the config), so a
+call is served by the intended upstream or fails loudly. The serving provider
+OpenRouter reports is persisted in every transcript as `served_by` and is part
+of the published audit trail. Direct vendor adapters remain in the codebase as
+a fallback path.
