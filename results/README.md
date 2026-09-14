@@ -1,7 +1,7 @@
 # Results
 
-Per-wave, per-model: full transcripts, scored JSON (issue #3), and the
-summary table used in the published writeup.
+Per-wave, per-model: full transcripts, scored JSON, and the summary table used
+in the published writeup.
 
 ## Transcript layout
 
@@ -17,6 +17,21 @@ Each transcript is one `(question, model, attempt)` triple: canonical
 `rendered_messages`, full raw request/response (JSON, credentials redacted),
 visible `text`, token usage, `cost_usd`, `requested_model`, `response_model`,
 and UTC timestamps. Answer keys, provenance, and API keys are never persisted.
+
+## Scoring layout
+
+```
+results/wave-N/scored.json
+results/wave-N/rubric-queue.json
+results/wave-N/overrides.jsonl
+```
+
+`python -m maxq.scoring` reads transcripts and the question file (keys stay in
+the question file; they are not copied back into transcripts). `scored.json` is
+a `WaveScoreReport`: per-attempt rows plus per-model pass@1 / best-of-n with a
+mandatory undergrad / practitioner / expert breakdown. Rubric items are first
+scored by an injectable judge, then confirmed via `--accept-llm` or
+`--apply-overrides`; the override log is append-only.
 
 ## Resume
 

@@ -1,8 +1,8 @@
 """Load, inventory-check, and hash held-out question waves.
 
-This module must not import ``maxq.scoring`` or ``maxq.runner`` (those modules
-raise ``NotImplementedError`` at import time). Extra Wave 1 rules live here
-rather than on the Pydantic ``Question`` model so scoring can evolve separately.
+This module must not import ``maxq.scoring`` or ``maxq.runner``. Extra Wave 1
+rules live here rather than on the Pydantic ``Question`` model so scoring can
+evolve separately.
 """
 
 from __future__ import annotations
