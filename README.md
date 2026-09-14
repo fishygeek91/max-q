@@ -35,7 +35,15 @@ No lab funding. No aerospace employer. No axe to grind. Just the harness, the qu
 
 ## Status
 
-Pre-launch. Wave 1 is frozen (SHA-256 in `questions/HASHES.md`); questions unpublished until scoring. Freeze tooling is `python scripts/freeze_wave.py` (checklist: `docs/freeze-run-publish.md`). The run harness (`python -m maxq.runner`) and scorer (`python -m maxq.scoring`) are in place: identical-treatment adapters, dry-run smoke, resumable transcripts, unit-aware numeric/series/exact checks, and a file-based rubric confirm queue. No scored live model runs yet. Grok 4.7 not yet released; the committed config pins Grok 4.6 as the baseline row.
+Pre-launch. Wave 1 is frozen to `f7b1f78c…` (`questions/HASHES.md`, posted on
+issue #5); the first digest is void and no model has been run against either
+file. Questions stay unpublished until every enabled config row is scored and
+a later Grok generation has been run. The harness (`python -m maxq.runner`,
+`python -m maxq.scoring`) treats `enabled: true` as the run set. Rubric
+confirmation is `--accept-from` plus `scripts/render_rubric_review.py`; do not
+blanket `--accept-llm` on Wave 1. Grok 4.7 is still a new config row, not a
+code change. Live Wave 1 transcripts are not in this repo (gitignored; rehearsal
+notes in `docs/wave-1-rehearsal.md`).
 
 ## License
 

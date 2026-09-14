@@ -26,7 +26,7 @@ from maxq.wave import (
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_wave.json"
 PRIVATE_WAVE = ROOT / "questions" / "private" / "wave-1.json"
-WAVE1_FROZEN_SHA = "0c38cba1425bfe22ddb9698b5d9a8bf634f20c4d6e65ca41e66b9a393b8e9e24"
+WAVE1_FROZEN_SHA = "f7b1f78c5e35c4b2d58472bf361d6e117980ed3bbde358d89b7229336872bc5e"
 
 DOMAINS: tuple[Domain, ...] = (
     "propulsion",
@@ -285,3 +285,7 @@ def test_private_wave_inventory_if_present() -> None:
     check_inventory(questions, require_wave1_ids=True)
     rows = [(q.id, q.domain, q.difficulty, q.scoring) for q in questions]
     assert len(rows) == 50
+    hashes = ROOT / "questions" / "HASHES.md"
+    frozen = frozen_hash_for("1", hashes)
+    assert frozen is not None
+    assert sha256_file(PRIVATE_WAVE) == frozen

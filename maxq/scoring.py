@@ -8,6 +8,8 @@ CLI::
 - exact: stripped string match on the FINAL payload
 - ground_truth_series: JSON array vs frozen precomputed truth (same unit + rel_tol)
 - rubric: LLM-assisted first pass, human-confirmed via a file queue; log overrides
+- --accept-from: confirm listed (question, model, attempt) triples without changing
+  the scored model set (unlike --model + --accept-llm)
 """
 
 from __future__ import annotations
@@ -51,6 +53,7 @@ from maxq.schema import (
     OverrideLogLine,
     ProviderName,
     Question,
+    RubricAcceptSpec,
     RubricOverrideSpec,
     RubricQueueItem,
     RunConfig,
@@ -74,6 +77,7 @@ RUBRIC_SYSTEM = (
 )
 _UREG = pint.UnitRegistry()
 _OVERRIDE_ADAPTER = TypeAdapter(list[RubricOverrideSpec])
+_ACCEPT_ADAPTER = TypeAdapter(list[RubricAcceptSpec])
 _PINT_ERRORS = (
     pint.PintError,
     ValueError,
@@ -586,10 +590,16 @@ def score_wave(
     wave_slug: str,
     judge: RubricJudge | None = None,
     accept_llm: bool = False,
+    accept_from: Sequence[RubricAcceptSpec] | None = None,
     overrides: Sequence[RubricOverrideSpec] | None = None,
     reviewer: str = "operator",
 ) -> WaveScoreReport:
-    """Score every (model, question, attempt) triple and persist scored artifacts."""
+    """Score every (model, question, attempt) triple and persist scored artifacts.
+
+    Confirm order: per-criterion overrides, then ``--accept-from`` triples,
+    then blanket ``--accept-llm``. ``--accept-from`` never changes which
+    models are scored; ``--model`` is the only score-set filter.
+    """
     if len(questions) == 0:
         raise WaveError("wave is empty")
     if len(models) == 0:
@@ -614,6 +624,8 @@ def score_wave(
     )
     if overrides is not None:
         _apply_overrides(queue, overrides, log_lines)
+    if accept_from is not None:
+        _accept_from(queue, accept_from, reviewer=reviewer, log_lines=log_lines)
     if accept_llm:
         _accept_llm(queue, reviewer=reviewer, log_lines=log_lines)
 
@@ -757,6 +769,9 @@ def main(argv: list[str] | None = None, *, judge: RubricJudge | None = None) -> 
         override_specs = (
             _load_override_specs(args.apply_overrides) if args.apply_overrides is not None else None
         )
+        accept_specs = (
+            _load_accept_specs(args.accept_from) if args.accept_from is not None else None
+        )
         report = score_wave(
             questions=questions,
             config=config,
@@ -765,6 +780,7 @@ def main(argv: list[str] | None = None, *, judge: RubricJudge | None = None) -> 
             wave_slug=args.wave,
             judge=resolved_judge,
             accept_llm=args.accept_llm,
+            accept_from=accept_specs,
             overrides=override_specs,
             reviewer=args.reviewer,
         )
@@ -822,6 +838,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--accept-llm",
         action="store_true",
         help="Confirm all pending rubric rows that have LLM (or stub) scores",
+    )
+    parser.add_argument(
+        "--accept-from",
+        type=Path,
+        default=None,
+        help="JSON array of {question_id, model, attempt} triples to confirm as-is",
     )
     parser.add_argument(
         "--apply-overrides",
@@ -1022,6 +1044,61 @@ def _apply_overrides(
                 to=spec.to,
                 reviewer=spec.reviewer,
                 reason=spec.reason,
+                at=timestamp,
+            )
+        )
+
+
+def _accept_from(
+    queue: dict[tuple[str, str, int], RubricQueueItem],
+    specs: Sequence[RubricAcceptSpec],
+    *,
+    reviewer: str,
+    log_lines: list[OverrideLogLine],
+) -> None:
+    """Confirm listed pending rows that already have first-pass scores.
+
+    Already-confirmed rows (for example after ``--apply-overrides``) are
+    skipped so a row can appear in both an override file and an accept file.
+    Unknown triples or rows with no ``llm_scores`` raise ``WaveError``.
+    """
+    timestamp = utc_now()
+    reviewer_name = reviewer.strip() if reviewer.strip() else "operator"
+    seen: set[tuple[str, str, int]] = set()
+    for spec in specs:
+        key = (spec.question_id, spec.model, spec.attempt)
+        if key in seen:
+            raise WaveError(
+                f"duplicate accept-from entry {spec.question_id} {spec.model} "
+                f"attempt {spec.attempt}"
+            )
+        seen.add(key)
+        item = queue.get(key)
+        if item is None:
+            raise WaveError(
+                f"accept-from for unknown rubric attempt "
+                f"{spec.question_id} {spec.model} a{spec.attempt}"
+            )
+        if item.status == "confirmed":
+            continue
+        if item.llm_scores is None:
+            raise WaveError(
+                f"accept-from {spec.question_id} {spec.model} a{spec.attempt} "
+                "has no first-pass llm_scores"
+            )
+        item.confirmed_scores = list(item.llm_scores)
+        item.status = "confirmed"
+        log_lines.append(
+            OverrideLogLine(
+                action="accept",
+                question_id=item.question_id,
+                model=item.model,
+                attempt=item.attempt,
+                criterion_index=None,
+                from_value=None,
+                to=None,
+                reviewer=reviewer_name,
+                reason="accept-from",
                 at=timestamp,
             )
         )
@@ -1275,6 +1352,7 @@ def _load_rubric_queue(path: Path) -> dict[tuple[str, str, int], RubricQueueItem
 
 
 def _load_override_specs(path: Path) -> list[RubricOverrideSpec]:
+    """Load a JSON array of ``RubricOverrideSpec`` objects from ``path``."""
     try:
         payload: object = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
@@ -1283,6 +1361,18 @@ def _load_override_specs(path: Path) -> list[RubricOverrideSpec]:
         return _OVERRIDE_ADAPTER.validate_python(payload)
     except ValidationError as exc:
         raise WaveError(f"{path}: override spec validation failed:\n{exc}") from exc
+
+
+def _load_accept_specs(path: Path) -> list[RubricAcceptSpec]:
+    """Load a JSON array of ``RubricAcceptSpec`` triples from ``path``."""
+    try:
+        payload: object = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise WaveError(f"{path}: invalid JSON ({exc})") from exc
+    try:
+        return _ACCEPT_ADAPTER.validate_python(payload)
+    except ValidationError as exc:
+        raise WaveError(f"{path}: accept-from spec validation failed:\n{exc}") from exc
 
 
 def _append_overrides(path: Path, lines: Sequence[OverrideLogLine]) -> None:

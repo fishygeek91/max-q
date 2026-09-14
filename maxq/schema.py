@@ -26,7 +26,7 @@ AttemptStatus = Literal[
 ]
 RubricQueueStatus = Literal["pending", "confirmed"]
 OverrideAction = Literal["accept", "override"]
-ProviderName = Literal["xai", "anthropic", "openai", "google"]
+ProviderName = Literal["xai", "anthropic", "openai", "google", "openrouter"]
 ModelRole = Literal["flagship", "baseline", "small_floor"]
 MessageRole = Literal["system", "user"]
 
@@ -35,6 +35,7 @@ TRANSCRIPT_KEY_ORDER: tuple[str, ...] = (
     "provider",
     "requested_model",
     "response_model",
+    "served_by",
     "attempt",
     "wave",
     "prompt_template_id",
@@ -206,6 +207,12 @@ class ModelSpec(BaseModel):
     tokens share the visible-output cap need more headroom). Null uses the
     run-level ``RunConfig.max_output_tokens``. Any override is a documented
     per-provider deviation from identical treatment — explain it in ``notes``."""
+    openrouter_providers: list[str] | None = None
+    """provider "openrouter" only: explicit first-party routing order (OpenRouter
+    provider slugs). Fallbacks are always disabled regardless; this pins WHICH
+    upstream serves the call. Null lets OpenRouter pick its default route for
+    the model (still no fallbacks), with the serving provider recorded per
+    transcript in ``served_by``."""
     notes: str = ""
 
     @model_validator(mode="after")
@@ -265,6 +272,9 @@ class Transcript(BaseModel):
     provider: ProviderName
     requested_model: str
     response_model: str | None
+    served_by: str | None = None
+    """Upstream provider that actually served the call, as reported by the
+    gateway (OpenRouter's ``provider`` field). None for direct vendor calls."""
     attempt: int = Field(ge=1)
     wave: str
     prompt_template_id: str
@@ -300,6 +310,7 @@ class AdapterResult(BaseModel):
     response_model: str | None
     sdk_version: str
     truncated: bool = False
+    served_by: str | None = None
 
 
 class ModelCostRow(BaseModel):
@@ -354,6 +365,14 @@ class RubricQueueItem(BaseModel):
     itself. None only for rows that never received a first pass."""
     status: RubricQueueStatus = "pending"
     confirmed_scores: list[bool] | None = None
+
+
+class RubricAcceptSpec(BaseModel):
+    """Human accept-as-is of one pending queue row (``--accept-from``)."""
+
+    question_id: str
+    model: str
+    attempt: int = Field(ge=1)
 
 
 class RubricOverrideSpec(BaseModel):

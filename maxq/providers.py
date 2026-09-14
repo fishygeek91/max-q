@@ -21,12 +21,14 @@ from openai import OpenAI
 from maxq.schema import AdapterResult, ProviderName, TokenUsage
 
 XAI_BASE_URL = "https://api.x.ai/v1"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 529})
 PROVIDER_ENV: dict[ProviderName, tuple[str, ...]] = {
     "xai": ("XAI_API_KEY",),
     "anthropic": ("ANTHROPIC_API_KEY",),
     "openai": ("OPENAI_API_KEY",),
     "google": ("GOOGLE_API_KEY", "GEMINI_API_KEY"),
+    "openrouter": ("OPENROUTER_API_KEY",),
 }
 _REDACT_EXACT = frozenset(
     {
@@ -221,10 +223,17 @@ def call_with_retry(
     raise last_error
 
 
-def adapter_for(provider: ProviderName, *, dry_run: bool) -> ProviderAdapter:
+def adapter_for(
+    provider: ProviderName,
+    *,
+    dry_run: bool,
+    openrouter_providers: list[str] | None = None,
+) -> ProviderAdapter:
     """Return a dry-run adapter or the live adapter for ``provider``."""
     if dry_run:
         return DryRunAdapter()
+    if provider == "openrouter":
+        return OpenRouterAdapter(providers_order=openrouter_providers)
     if provider == "xai":
         return XAIAdapter()
     if provider == "anthropic":
@@ -298,6 +307,88 @@ class DryRunAdapter:
             response_model=model_id,
             sdk_version="dry-run",
         )
+
+
+class OpenRouterAdapter:
+    """OpenRouter gateway (OpenAI-compatible). Fallback routing is DISABLED.
+
+    Every request pins ``provider.allow_fallbacks = false`` so a call is served
+    by the intended upstream or fails loudly — never silently rerouted. The
+    serving provider OpenRouter reports comes back as ``served_by`` and is
+    persisted in the transcript for the public audit trail.
+    """
+
+    def __init__(self, *, providers_order: list[str] | None = None) -> None:
+        self._providers_order = providers_order
+
+    def complete(
+        self,
+        *,
+        model_id: str,
+        system: str,
+        user: str,
+        temperature: float,
+        send_temperature: bool,
+        max_output_tokens: int,
+        timeout_s: float,
+    ) -> AdapterResult:
+        """Call OpenRouter chat completions with fallbacks disabled."""
+        api_key = require_key("openrouter")
+        client = OpenAI(api_key=api_key, base_url=OPENROUTER_BASE_URL, timeout=timeout_s)
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        routing: dict[str, object] = {"allow_fallbacks": False}
+        if self._providers_order:
+            routing["order"] = list(self._providers_order)
+        extra_body: dict[str, object] = {"provider": routing}
+        request_temperature = temperature if send_temperature else None
+        raw_request: dict[str, object] = {
+            "provider": "openrouter",
+            "model": model_id,
+            "messages": messages,
+            "max_tokens": max_output_tokens,
+            "temperature": request_temperature,
+            "routing": routing,
+        }
+        kwargs: dict[str, object] = {}
+        if send_temperature:
+            kwargs["temperature"] = temperature
+        response = client.chat.completions.create(
+            model=model_id,
+            messages=messages,
+            max_tokens=max_output_tokens,
+            timeout=timeout_s,
+            extra_body=extra_body,
+            **kwargs,
+        )
+        echoed = getattr(response, "model", None)
+        response_model = echoed if isinstance(echoed, str) else None
+        return AdapterResult(
+            text=_chat_text(response),
+            usage=_usage_from_chat(response),
+            raw_request=sanitize_object(raw_request),
+            raw_response=sanitize_object(response),
+            request_temperature=request_temperature,
+            response_model=response_model,
+            sdk_version=package_version("openai"),
+            truncated=_chat_truncated(response),
+            served_by=_openrouter_served_by(response),
+        )
+
+
+def _openrouter_served_by(response: object) -> str | None:
+    """Extract OpenRouter's top-level ``provider`` field (the serving upstream)."""
+    direct = getattr(response, "provider", None)
+    if isinstance(direct, str) and direct.strip():
+        return direct
+    extra = getattr(response, "model_extra", None)
+    if isinstance(extra, Mapping):
+        value = extra.get("provider")
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
 
 
 class XAIAdapter:

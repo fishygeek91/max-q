@@ -4,8 +4,12 @@ Mechanical sequence for a question wave. Do not improvise under launch-day
 time pressure. Hashing is SHA-256 of the private JSON **as stored on disk** —
 never re-serialize, pretty-print, or sort keys after freeze.
 
-Wave 1 is already frozen and posted (`questions/HASHES.md`, issue #11 comment).
-Remaining for Wave 1: run → score → publish (steps 5–7).
+Wave 1 is frozen to `f7b1f78c…` (39211 bytes) and posted
+([issue #5 comment](https://github.com/fishygeek91/max-q/issues/5#issuecomment-5667748349);
+voided first digest documented in `questions/HASHES.md`). Remaining for Wave 1:
+run enabled rows → Claude first-pass judge → Darth confirm → later Grok
+generation → publish (steps 5–7). Do not publish between the 4.6 baseline and
+the next Grok row.
 
 ## 1. Author and lock bytes
 
@@ -43,11 +47,20 @@ model runs until Posted is filled.
 
 ```
 python -m maxq.runner --wave N --questions questions/private/wave-N.json
-python -m maxq.scoring --wave N --questions questions/private/wave-N.json
+python -m maxq.scoring --wave N --questions questions/private/wave-N.json --judge-model anthropic/claude-fable-5-1
+python scripts/render_rubric_review.py --wave N --questions questions/private/wave-N.json
+python -m maxq.scoring --wave N --questions questions/private/wave-N.json \
+  --accept-from results/wave-N/accept.json --apply-overrides results/wave-N/human-overrides.json \
+  --reviewer Darth
+python scripts/wave_metrics.py --wave N
 ```
 
-Use the committed `config/run.json`. Do not publish between the Grok 4.6
-baseline and a later Grok generation — that leaks stems and voids the delta.
+Use the committed `config/run.json` (every `enabled: true` row). Do not
+`--accept-llm` on a wave that will be published. Do not publish between the
+Grok 4.6 baseline and a later Grok generation — that leaks stems and voids
+the delta. `freeze_wave.py --run` cannot supersede a conflicting HASHES.md
+row; a voided freeze is a manual HASHES.md edit plus a new public post, and
+only if no model has been run.
 
 ## 6. Publish
 

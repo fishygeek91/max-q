@@ -357,6 +357,7 @@ def _success_transcript(
         dry_run=dry_run,
         truncated=result.truncated,
         error=None,
+        served_by=result.served_by,
     )
 
 
@@ -377,7 +378,11 @@ def run_wave(
     remaining_errors = 0
 
     for spec in models:
-        adapter = adapter_for(spec.provider, dry_run=dry_run)
+        adapter = adapter_for(
+            spec.provider,
+            dry_run=dry_run,
+            openrouter_providers=spec.openrouter_providers,
+        )
         max_tokens = effective_max_output_tokens(spec, config)
         for question in questions:
             messages = render_prompt(question, config)
@@ -478,7 +483,11 @@ def verify_models(
     """
     failures = 0
     for spec in models:
-        adapter = adapter_for(spec.provider, dry_run=dry_run)
+        adapter = adapter_for(
+            spec.provider,
+            dry_run=dry_run,
+            openrouter_providers=spec.openrouter_providers,
+        )
         try:
             result = call_with_retry(
                 adapter,
@@ -498,7 +507,8 @@ def verify_models(
             failures += 1
             continue
         echoed = result.response_model if result.response_model is not None else ""
-        print(f"{spec.id}\t requested={spec.id}\t echoed={echoed}")
+        served = result.served_by if result.served_by is not None else ""
+        print(f"{spec.id}\t requested={spec.id}\t echoed={echoed}\t served_by={served}")
     return 2 if failures else 0
 
 

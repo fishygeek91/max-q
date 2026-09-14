@@ -13,6 +13,7 @@ from maxq.schema import (
     ModelSpec,
     Pricing,
     Question,
+    RubricAcceptSpec,
     RubricOverrideSpec,
     RunConfig,
     TokenUsage,
@@ -34,7 +35,7 @@ from maxq.scoring import (
     score_wave,
     within_rel_tol,
 )
-from maxq.wave import load_questions
+from maxq.wave import WaveError, load_questions
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = Path(__file__).parent / "fixtures" / "scoring_wave.json"
@@ -194,7 +195,9 @@ def _write_transcript(
         truncated=truncated,
         error=error,
     )
-    path = results_root / "wave-score" / model_id / f"{question_id}-a{attempt}.json"
+    from maxq.runner import model_slug
+
+    path = results_root / "wave-score" / model_slug(model_id) / f"{question_id}-a{attempt}.json"
     dump_transcript(transcript, path)
     return path
 
@@ -464,6 +467,107 @@ def test_rubric_pending_then_accept_and_override(tmp_path: Path) -> None:
     assert override_lines[0]["reason"] == "assumption never named"
 
 
+def test_accept_from_confirms_subset_and_keeps_all_models(tmp_path: Path) -> None:
+    """--accept-from confirms listed rows only; other models stay in scored.json."""
+    questions = load_questions(FIXTURE)
+    rubric_q = next(item for item in questions if item.scoring == "rubric")
+    other_id = "other-model"
+    for model_id in (MODEL_ID, other_id):
+        for question in questions:
+            for attempt in (1, 2):
+                if question.scoring == "numeric_tolerance":
+                    text = "FINAL: 1.0 m/s"
+                elif question.scoring == "exact":
+                    text = "FINAL: alpha"
+                elif question.scoring == "ground_truth_series":
+                    text = "FINAL: [1.0, 2.0, 3.0]"
+                else:
+                    text = "The governing equation is n-dot. Assumption: vacuum."
+                _write_transcript(
+                    tmp_path,
+                    question_id=question.id,
+                    attempt=attempt,
+                    text=text,
+                    model_id=model_id,
+                )
+    models = [_spec(), _spec(other_id)]
+    config = _config(attempts=2)
+    config = config.model_copy(update={"models": models})
+    score_wave(
+        questions=questions,
+        config=config,
+        models=models,
+        results_root=tmp_path,
+        wave_slug="score",
+        judge=FakeJudge([True, True]),
+        accept_llm=False,
+    )
+    accepted = score_wave(
+        questions=questions,
+        config=config,
+        models=models,
+        results_root=tmp_path,
+        wave_slug="score",
+        judge=None,
+        accept_from=[
+            RubricAcceptSpec(question_id=rubric_q.id, model=MODEL_ID, attempt=1),
+        ],
+        reviewer="Darth",
+    )
+    assert [summary.model for summary in accepted.models] == [MODEL_ID, other_id]
+    by_key = {
+        (row.question_id, row.model, row.attempt): row
+        for row in accepted.attempts
+        if row.question_id == rubric_q.id
+    }
+    assert by_key[(rubric_q.id, MODEL_ID, 1)].status == "correct"
+    assert by_key[(rubric_q.id, MODEL_ID, 2)].status == "pending_rubric"
+    assert by_key[(rubric_q.id, other_id, 1)].status == "pending_rubric"
+    log_lines = [
+        json.loads(line)
+        for line in (tmp_path / "wave-score" / "overrides.jsonl").read_text().splitlines()
+        if line
+    ]
+    accepts = [line for line in log_lines if line["action"] == "accept"]
+    assert len(accepts) == 1
+    assert accepts[0]["reviewer"] == "Darth"
+    assert accepts[0]["reason"] == "accept-from"
+
+
+def test_accept_from_unknown_triple_errors(tmp_path: Path) -> None:
+    """An accept-from row that is not in the queue is a hard error."""
+    questions = load_questions(FIXTURE)
+    rubric_q = next(item for item in questions if item.scoring == "rubric")
+    for question in questions:
+        text = "FINAL: 1.0 m/s"
+        if question.scoring == "exact":
+            text = "FINAL: alpha"
+        elif question.scoring == "ground_truth_series":
+            text = "FINAL: [1.0, 2.0, 3.0]"
+        elif question.scoring == "rubric":
+            text = "derivation"
+        _write_transcript(tmp_path, question_id=question.id, attempt=1, text=text)
+    score_wave(
+        questions=questions,
+        config=_config(attempts=1),
+        models=[_spec()],
+        results_root=tmp_path,
+        wave_slug="score",
+        judge=FakeJudge([True, True]),
+    )
+    with pytest.raises(WaveError, match="unknown rubric attempt"):
+        score_wave(
+            questions=questions,
+            config=_config(attempts=1),
+            models=[_spec()],
+            results_root=tmp_path,
+            wave_slug="score",
+            accept_from=[
+                RubricAcceptSpec(question_id=rubric_q.id, model="nope", attempt=1),
+            ],
+        )
+
+
 def test_pass_at_1_false_best_of_n_true(tmp_path: Path) -> None:
     """Attempt 1 misses, attempt 2 hits: pass@1 is 0 and best-of-n is 1 for that tier."""
     question = _question()
@@ -508,7 +612,7 @@ def test_cli_table_includes_every_tier_not_a_headline(tmp_path: Path) -> None:
                 question_id=question.id,
                 attempt=attempt,
                 text=text,
-                model_id="grok-4.6",
+                model_id="x-ai/grok-4.6",
             )
     code = main(
         [
@@ -521,7 +625,7 @@ def test_cli_table_includes_every_tier_not_a_headline(tmp_path: Path) -> None:
             "--config",
             str(CONFIG),
             "--model",
-            "grok-4.6",
+            "x-ai/grok-4.6",
             "--judge-stub",
             "--accept-llm",
         ]
@@ -533,7 +637,7 @@ def test_cli_table_includes_every_tier_not_a_headline(tmp_path: Path) -> None:
     assert "practitioner" in scored["models"][0]["by_tier"]
     assert "expert" in scored["models"][0]["by_tier"]
     transcript_before = (
-        tmp_path / "wave-score" / "grok-4.6" / f"{questions[0].id}-a1.json"
+        tmp_path / "wave-score" / "x-ai--grok-4.6" / f"{questions[0].id}-a1.json"
     ).read_text(encoding="utf-8")
     assert "answer" not in json.loads(transcript_before)
     assert "rel_tol" not in json.loads(transcript_before)
@@ -556,7 +660,7 @@ def test_cli_prints_tier_table(tmp_path: Path, capsys: pytest.CaptureFixture[str
                 question_id=question.id,
                 attempt=attempt,
                 text=text,
-                model_id="grok-4.6",
+                model_id="x-ai/grok-4.6",
             )
     code = main(
         [
@@ -569,7 +673,7 @@ def test_cli_prints_tier_table(tmp_path: Path, capsys: pytest.CaptureFixture[str
             "--config",
             str(CONFIG),
             "--model",
-            "grok-4.6",
+            "x-ai/grok-4.6",
             "--judge-stub",
         ]
     )
@@ -581,7 +685,7 @@ def test_cli_prints_tier_table(tmp_path: Path, capsys: pytest.CaptureFixture[str
     assert "undergrad" in stdout
     assert "practitioner" in stdout
     assert "expert" in stdout
-    numeric_lines = [line for line in stdout.splitlines() if line.startswith("grok-4.6")]
+    numeric_lines = [line for line in stdout.splitlines() if line.startswith("x-ai/grok-4.6")]
     assert len(numeric_lines) == 3
 
 
