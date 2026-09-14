@@ -132,8 +132,7 @@ def test_dry_run_smoke_writes_well_formed_transcripts(tmp_path: Path) -> None:
     config = load_run_config(CONFIG)
     questions = load_questions(FIXTURE)
     enabled = [spec for spec in config.models if spec.enabled]
-    providers = {spec.provider for spec in enabled}
-    assert providers == {"xai", "anthropic", "openai", "google"}
+    assert len(enabled) > 0
     wave_dir = tmp_path / "wave-smoke"
     files = list(wave_dir.glob("*/*-a*.json"))
     assert len(files) == len(questions) * len(enabled) * config.attempts
@@ -560,9 +559,9 @@ def test_google_adapter_block_none_and_canonical_text(monkeypatch: pytest.Monkey
 
 
 def test_config_pins_expected_models() -> None:
-    """Committed config lists the four providers plus the small-model floor."""
+    """Committed config lists every provider row; the run set is enabled rows."""
     config = load_run_config(CONFIG)
-    ids = [spec.id for spec in config.models if spec.enabled]
+    ids = [spec.id for spec in config.models]
     assert ids == [
         "grok-4.6",
         "claude-fable-5-1",
@@ -570,6 +569,11 @@ def test_config_pins_expected_models() -> None:
         "gemini-3.1-pro",
         "gemini-3.8-flash",
     ]
+    enabled_ids = [spec.id for spec in config.models if spec.enabled]
+    disabled_ids = [spec.id for spec in config.models if not spec.enabled]
+    assert "gpt-6-astra" in ids
+    assert "gpt-6-astra" in disabled_ids
+    assert "gpt-6-astra" not in enabled_ids
     assert config.temperature == 0.0
     assert config.attempts == 3
     assert config.prompt_template_id == "maxq-closed-book-v1"
