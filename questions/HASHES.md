@@ -6,7 +6,7 @@ this directory and anyone can verify the hash.
 
 | Wave | Frozen (UTC) | SHA-256 | Posted | Published |
 |---|---|---|---|---|
-| 1 | 2026-09-13T15:22:48Z | f7b1f78c5e35c4b2d58472bf361d6e117980ed3bbde358d89b7229336872bc5e | — | — |
+| 1 | 2026-09-13T15:22:48Z | f7b1f78c5e35c4b2d58472bf361d6e117980ed3bbde358d89b7229336872bc5e | [issue #5 comment](https://github.com/fishygeek91/max-q/issues/5#issuecomment-5667748349) | — |
 
 **Posted** = external, server-timestamped record of the commitment made before any
 model run (a GitHub issue comment cannot be rewritten by the repo owner the way git
